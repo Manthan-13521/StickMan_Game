@@ -66,6 +66,7 @@ export class GameScene extends Phaser.Scene {
   private roundTimer: number = GAME_CONFIG.ROUND_DURATION;
   private fighting = false;
   private koTimer = 0;
+  private roundOver = false;
   private KO_DELAY_FRAMES = GAME_CONFIG.KO_DELAY;
 
   constructor() {
@@ -89,6 +90,7 @@ export class GameScene extends Phaser.Scene {
     this.roundTimer = GAME_CONFIG.ROUND_DURATION;
     this.fighting = false;
     this.koTimer = 0;
+    this.roundOver = false;
 
     this.countdown.start(() => {
       this.fighting = true;
@@ -154,6 +156,16 @@ export class GameScene extends Phaser.Scene {
     }
 
     this.resolveRound();
+
+    if (this.roundOver) {
+      this.hud?.update(
+        this.combatStates[0],
+        this.combatStates[1],
+        this.round,
+        this.roundTimer,
+      );
+      return;
+    }
 
     this.roundTimer -= dt;
     if (this.roundTimer <= 0) {
@@ -294,6 +306,7 @@ export class GameScene extends Phaser.Scene {
 
       if (!atkC.attackType || atkC.attackTimer <= 0) continue;
       if (defC.health <= 0) continue;
+      if (defC.invincibilityTimer > 0) continue;
 
       const config = this.getAttackConfig(atkC.attackType);
       if (!config) continue;
@@ -349,15 +362,19 @@ export class GameScene extends Phaser.Scene {
   }
 
   private resolveRound(): void {
+    if (this.roundOver) return;
     for (let i = 0; i < 2; i++) {
       if (this.combatStates[i].health <= 0 && this.combatStates[i].alive) {
         this.combatStates[i].alive = false;
         this.triggerKO(i);
+        break;
       }
     }
   }
 
   private triggerKO(loserIndex: number | null): void {
+    if (this.roundOver) return;
+    this.roundOver = true;
     this.fighting = false;
     this.koTimer = 2000;
 
@@ -390,6 +407,7 @@ export class GameScene extends Phaser.Scene {
             createCombatState(this.combatStates[1].wins),
           ];
           this.koTimer = 0;
+          this.roundOver = false;
           this.countdown?.start(() => {
             this.fighting = true;
           });
