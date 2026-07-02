@@ -31,14 +31,26 @@ export class InputManager {
 
   getInput(): GameInput {
     const c = this.cachedInput;
-    c.left = this.keys.has('ArrowLeft') || this.keys.has('KeyA');
-    c.right = this.keys.has('ArrowRight') || this.keys.has('KeyD');
-    c.up = this.keys.has('ArrowUp') || this.keys.has('KeyW');
-    c.down = this.keys.has('ArrowDown') || this.keys.has('KeyS');
+    c.left = this.keys.has('ArrowLeft');
+    c.right = this.keys.has('ArrowRight');
+    c.up = this.keys.has('ArrowUp');
+    c.down = this.keys.has('ArrowDown');
     c.punch = this.keys.has('KeyJ') || this.keys.has('Space');
     c.kick = this.keys.has('KeyK');
     c.block = this.keys.has('KeyL') || this.keys.has('ShiftLeft');
     return c;
+  }
+
+  getP2Input(): GameInput {
+    return {
+      left: this.keys.has('KeyA'),
+      right: this.keys.has('KeyD'),
+      up: this.keys.has('KeyW'),
+      down: this.keys.has('KeyS'),
+      punch: this.keys.has('KeyF'),
+      kick: this.keys.has('KeyG'),
+      block: this.keys.has('KeyH'),
+    };
   }
 
   destroy(): void {

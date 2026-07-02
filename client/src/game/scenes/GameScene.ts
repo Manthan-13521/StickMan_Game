@@ -207,9 +207,11 @@ export class GameScene extends Phaser.Scene {
     const p1 = this.physStates[1];
     const c0 = this.combatStates[0];
     const c1 = this.combatStates[1];
+    const p2Input = this.inputManager?.getP2Input() ?? P2_INPUT;
 
     if (c0.health > 0) {
       if (c0.hitstopTimer > 0 || c0.inHitstun) {
+        updatePhysics(p0, dt, 0, false);
         if (p0.grounded && c0.invincibilityTimer <= 0) {
           c0.inHitstun = false;
         }
@@ -218,24 +220,24 @@ export class GameScene extends Phaser.Scene {
         if (input.left) moveX1 -= 1;
         if (input.right) moveX1 += 1;
         c0.isBlocking = input.block && p0.grounded;
-        updatePhysics(p0, dt, moveX1, input.up);
         this.handleLocalAttack(0, input);
+        updatePhysics(p0, dt, moveX1, input.up);
       }
     }
 
     if (c1.health > 0) {
       if (c1.hitstopTimer > 0 || c1.inHitstun) {
+        updatePhysics(p1, dt, 0, false);
         if (p1.grounded && c1.invincibilityTimer <= 0) {
           c1.inHitstun = false;
         }
       } else {
         let moveX2 = 0;
-        if (input.down) moveX2 -= 1;
-        if (input.punch) moveX2 += 1;
-        c1.isBlocking = input.block && p1.grounded;
-        updatePhysics(p1, dt, moveX2, input.block);
-        P2_INPUT.punch = input.kick;
-      this.handleLocalAttack(1, P2_INPUT);
+        if (p2Input.left) moveX2 -= 1;
+        if (p2Input.right) moveX2 += 1;
+        c1.isBlocking = p2Input.block && p1.grounded;
+        this.handleLocalAttack(1, p2Input);
+        updatePhysics(p1, dt, moveX2, p2Input.up);
       }
     }
 
