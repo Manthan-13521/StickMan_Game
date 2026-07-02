@@ -15,7 +15,7 @@ export default function PhaserGame({ onReady }: PhaserGameProps) {
   const gameRef = useRef<Phaser.Game | null>(null);
   const initializedRef = useRef(false);
 
-  const config: Phaser.Types.Core.GameConfig = {
+  const configRef = useRef<Phaser.Types.Core.GameConfig>({
     type: Phaser.AUTO,
     width: 1200,
     height: 600,
@@ -29,14 +29,16 @@ export default function PhaserGame({ onReady }: PhaserGameProps) {
       autoCenter: Phaser.Scale.CENTER_BOTH,
     },
     scene: [BootScene, GameScene],
-  };
+  });
+  const onReadyRef = useRef(onReady);
+  onReadyRef.current = onReady;
 
   useEffect(() => {
     if (!containerRef.current || initializedRef.current) return;
     initializedRef.current = true;
-    const game = new Phaser.Game({ ...config, parent: containerRef.current });
+    const game = new Phaser.Game({ ...configRef.current, parent: containerRef.current });
     gameRef.current = game;
-    onReady?.(game);
+    onReadyRef.current?.(game);
     return () => {
       game.destroy(true);
       gameRef.current = null;

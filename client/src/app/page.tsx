@@ -42,13 +42,13 @@ function GameView() {
 export default function HomePage() {
   const [view, setView] = useState<View>('menu');
   const [roomCode, setRoomCode] = useState('');
-  const { setRoomCode: setStoreRoomCode, setPlayerIndex, setGameState, setConnected, setError, reset: resetStore } =
+  const { connected, error, setRoomCode: setStoreRoomCode, setPlayerIndex, setGameState, setConnected, setError, reset: resetStore } =
     useGameStore();
 
   useEffect(() => {
     networkClient.connect();
 
-    const onConnect = () => setConnected(true);
+    const onConnect = () => { setConnected(true); setError(null); };
     const onDisconnect = () => setConnected(false);
     const onRoomCreated = (data: { code: string; playerIndex: number }) => {
       setStoreRoomCode(data.code);
@@ -80,18 +80,20 @@ export default function HomePage() {
       networkClient.disconnect();
       resetStore();
     };
-  }, []);
+  }, [setConnected, setError, setStoreRoomCode, setPlayerIndex, setGameState, resetStore]);
 
   const handleCreateRoom = useCallback(() => {
+    setError(null);
     networkClient.createRoom();
     setView('create');
-  }, []);
+  }, [setError]);
 
   const handleJoinRoom = useCallback(() => {
     if (roomCode.length === 6) {
+      setError(null);
       networkClient.joinRoom(roomCode);
     }
-  }, [roomCode]);
+  }, [roomCode, setError]);
 
   if (view === 'game') {
     return <GameView />;
@@ -137,16 +139,34 @@ export default function HomePage() {
               </motion.p>
             </div>
 
+            {error && (
+              <motion.div
+                initial={{ opacity: 0, y: -10 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="w-full max-w-sm px-4 py-3 rounded-xl bg-red-500/10 border border-red-500/30 text-red-400 text-sm text-center"
+              >
+                {error}
+              </motion.div>
+            )}
+
             <motion.div
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.5, delay: 0.7 }}
               className="flex flex-col gap-4 w-full max-w-sm"
             >
-              <button onClick={handleCreateRoom} className="btn-primary w-full">
-                Create Room
+              <button
+                onClick={handleCreateRoom}
+                disabled={!connected}
+                className="btn-primary w-full disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                {connected ? 'Create Room' : 'Connecting...'}
               </button>
-              <button onClick={() => setView('join')} className="btn-secondary w-full">
+              <button
+                onClick={() => setView('join')}
+                disabled={!connected}
+                className="btn-secondary w-full disabled:opacity-40 disabled:cursor-not-allowed"
+              >
                 Join Room
               </button>
             </motion.div>
@@ -172,6 +192,11 @@ export default function HomePage() {
             className="relative z-10 flex flex-col items-center gap-8 px-6"
           >
             <h2 className="font-display text-4xl font-bold text-gradient">Join Room</h2>
+            {error && (
+              <div className="w-full max-w-sm px-4 py-3 rounded-xl bg-red-500/10 border border-red-500/30 text-red-400 text-sm text-center">
+                {error}
+              </div>
+            )}
             <div className="glass rounded-2xl p-8 w-full max-w-sm">
               <input
                 type="text"
@@ -210,6 +235,11 @@ export default function HomePage() {
               <div className="w-12 h-12 border-4 border-indigo-500 border-t-transparent rounded-full animate-spin mx-auto mb-4" />
               <p className="text-slate-400">Creating room...</p>
             </div>
+            {error && (
+              <button onClick={() => setView('menu')} className="btn-secondary mt-4 text-sm py-3">
+                Back
+              </button>
+            )}
           </motion.div>
         )}
       </AnimatePresence>

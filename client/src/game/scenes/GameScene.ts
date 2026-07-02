@@ -51,7 +51,7 @@ function createCombatState(wins = 0): CombatState {
 export class GameScene extends Phaser.Scene {
   private stickmen: Stickman[] = [];
   private physStates: PhysicalState[] = [];
-  private combatStates: CombatState[] = [];
+  private combatStates: CombatState[] = [createCombatState(), createCombatState()];
   private inputManager: InputManager | null = null;
   private networkState: GameStateSnapshot | null = null;
   private localMode = true;
@@ -98,6 +98,7 @@ export class GameScene extends Phaser.Scene {
   update(_time: number, delta: number): void {
     const dt = delta / 1000;
     if (dt > 0.05) return;
+    if (this.stickmen.length < 2 || this.combatStates.length < 2) return;
 
     this.countdown?.update(dt);
 
