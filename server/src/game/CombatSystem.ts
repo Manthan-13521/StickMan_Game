@@ -25,7 +25,7 @@ export class CombatSystem {
       if (this.hitThisTick.has(defender.id)) continue;
 
       const attackerHitbox = this.getHitbox(attacker, config.range);
-      const defenderHitbox = this.getHitbox(defender, 0);
+      const defenderHitbox = this.getDefenderHitbox(defender);
 
       if (!this.overlaps(attackerHitbox, defenderHitbox)) continue;
 
@@ -58,6 +58,15 @@ export class CombatSystem {
         attacker.hitstopTimer = hitStop;
       }
     }
+  }
+
+  private getDefenderHitbox(player: ServerPlayer): { x: number; y: number; w: number; h: number } {
+    return {
+      x: player.x,
+      y: player.y,
+      w: PLAYER_CONFIG.WIDTH,
+      h: PLAYER_CONFIG.HEIGHT,
+    };
   }
 
   private getHitbox(player: ServerPlayer, range: number): { x: number; y: number; w: number; h: number } {
