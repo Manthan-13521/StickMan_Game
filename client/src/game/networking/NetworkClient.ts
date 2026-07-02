@@ -16,7 +16,7 @@ class NetworkClient {
     }
 
     this.socket = io(SERVER_URL, {
-      transports: ['websocket'],
+      transports: ['polling', 'websocket'],
       reconnection: true,
       reconnectionAttempts: 5,
       reconnectionDelay: 1000,
