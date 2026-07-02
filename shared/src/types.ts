@@ -79,13 +79,11 @@ export interface RoomInfo {
 
 export interface CreateRoomResponse {
   code: string;
-  playerId: string;
   playerIndex: number;
 }
 
 export interface JoinRoomResponse {
   code: string;
-  playerId: string;
   playerIndex: number;
 }
 

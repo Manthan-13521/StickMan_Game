@@ -1,4 +1,4 @@
-import Phaser from 'phaser';
+import * as Phaser from 'phaser';
 import { PLAYER_CONFIG } from '@/shared';
 
 interface HUDPlayerData {

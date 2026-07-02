@@ -1,4 +1,4 @@
-import Phaser from 'phaser';
+import * as Phaser from 'phaser';
 import {
   PLAYER_CONFIG, COMBAT_CONFIG, ATTACK_CONFIG, GAME_CONFIG,
   PlayerStance,
