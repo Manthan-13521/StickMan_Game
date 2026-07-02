@@ -1,7 +1,10 @@
+'use client';
+
 import { useEffect, useRef } from 'react';
 import Phaser from 'phaser';
 import { BootScene } from './scenes/BootScene';
 import { GameScene } from './scenes/GameScene';
+import { MobileInput } from './input/MobileInput';
 
 interface PhaserGameProps {
   onReady?: (game: Phaser.Game) => void;
@@ -41,5 +44,10 @@ export default function PhaserGame({ onReady }: PhaserGameProps) {
     };
   }, []);
 
-  return <div ref={containerRef} className="w-full h-full rounded-2xl overflow-hidden" />;
+  return (
+    <div className="relative w-full h-full">
+      <div ref={containerRef} className="w-full h-full rounded-2xl overflow-hidden" />
+      <MobileInput />
+    </div>
+  );
 }

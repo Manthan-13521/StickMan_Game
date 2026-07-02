@@ -39,8 +39,11 @@ export const ATTACK_CONFIG = {
     active: 100,
     recovery: 150,
     knockback: 300,
+    knockbackY: -200,
     hitstop: 80,
     comboWindow: 300,
+    chainInto: 'kick' as const,
+    groundBounce: false,
   },
   KICK: {
     damage: 120,
@@ -49,8 +52,11 @@ export const ATTACK_CONFIG = {
     active: 120,
     recovery: 200,
     knockback: 450,
+    knockbackY: -300,
     hitstop: 120,
     comboWindow: 200,
+    chainInto: null,
+    groundBounce: false,
   },
   HEAVY: {
     damage: 200,
@@ -59,9 +65,35 @@ export const ATTACK_CONFIG = {
     active: 150,
     recovery: 300,
     knockback: 600,
+    knockbackY: -450,
     hitstop: 150,
     comboWindow: 150,
+    chainInto: null,
+    groundBounce: true,
   },
+  ULTIMATE: {
+    damage: 400,
+    range: 100,
+    startup: 100,
+    active: 200,
+    recovery: 400,
+    knockback: 800,
+    knockbackY: -500,
+    hitstop: 250,
+    comboWindow: 100,
+    chainInto: null,
+    groundBounce: true,
+  },
+} as const;
+
+export const COMBAT_CONFIG = {
+  COMBO_SCALING: 0.85,
+  COMBO_TIMER_MS: 2000,
+  JUGGLE_GRAVITY_MULTIPLIER: 0.6,
+  GROUND_BOUNCE_VY: -400,
+  CANCEL_WINDOW_RATIO: 0.3,
+  ULTIMATE_COST: 100,
+  ULTIMATE_ARMOR_DURATION: 200,
 } as const;
 
 export const ROOM_CODE_LENGTH = 6;

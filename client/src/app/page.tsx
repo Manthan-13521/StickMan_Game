@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, Suspense } from 'react';
 import dynamic from 'next/dynamic';
 import { motion, AnimatePresence } from 'framer-motion';
+import { ServerEvent } from '@/shared';
 import { useGameStore } from '@/stores/gameStore';
 import { networkClient } from '@/game/networking/NetworkClient';
 
@@ -45,32 +46,37 @@ export default function HomePage() {
     useGameStore();
 
   useEffect(() => {
-    const socket = networkClient.connect();
+    networkClient.connect();
 
-    socket.on('connect', () => setConnected(true));
-    socket.on('disconnect', () => setConnected(false));
-
-    networkClient.onRoomCreated((data) => {
+    const onConnect = () => setConnected(true);
+    const onDisconnect = () => setConnected(false);
+    const onRoomCreated = (data: { code: string; playerIndex: number }) => {
       setStoreRoomCode(data.code);
       setPlayerIndex(data.playerIndex);
       setView('game');
-    });
-
-    networkClient.onPlayerJoined((data) => {
+    };
+    const onPlayerJoined = (data: { code: string; playerIndex: number }) => {
       setStoreRoomCode(data.code);
       setPlayerIndex(data.playerIndex);
       setView('game');
-    });
+    };
+    const onGameState = (data: any) => setGameState(data);
+    const onError = (data: { message: string }) => setError(data.message);
 
-    networkClient.onGameState((data) => {
-      setGameState(data);
-    });
-
-    networkClient.onError((data) => {
-      setError(data.message);
-    });
+    networkClient.on('_connected', onConnect);
+    networkClient.on('_disconnected', onDisconnect);
+    networkClient.on(ServerEvent.ROOM_CREATED, onRoomCreated);
+    networkClient.on(ServerEvent.PLAYER_JOINED, onPlayerJoined);
+    networkClient.on(ServerEvent.GAME_STATE, onGameState);
+    networkClient.on(ServerEvent.ERROR, onError);
 
     return () => {
+      networkClient.off('_connected', onConnect);
+      networkClient.off('_disconnected', onDisconnect);
+      networkClient.off(ServerEvent.ROOM_CREATED, onRoomCreated);
+      networkClient.off(ServerEvent.PLAYER_JOINED, onPlayerJoined);
+      networkClient.off(ServerEvent.GAME_STATE, onGameState);
+      networkClient.off(ServerEvent.ERROR, onError);
       networkClient.disconnect();
       resetStore();
     };

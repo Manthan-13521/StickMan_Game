@@ -1,4 +1,4 @@
-import { PLAYER_CONFIG } from 'shared';
+import { PLAYER_CONFIG, COMBAT_CONFIG } from 'shared';
 import { ServerPlayer } from './Player';
 
 export class PhysicsEngine {
@@ -16,7 +16,11 @@ export class PhysicsEngine {
       }
 
       if (!player.isGrounded) {
-        player.velocityY += PLAYER_CONFIG.GRAVITY * dt * 0.016;
+        let gravityMult = 1;
+        if (player.knockbackTimer > 0 && !player.isGrounded) {
+          gravityMult = COMBAT_CONFIG.JUGGLE_GRAVITY_MULTIPLIER;
+        }
+        player.velocityY += PLAYER_CONFIG.GRAVITY * gravityMult * dt * 0.016;
       }
 
       player.x += player.velocityX * dt * 0.016;

@@ -53,6 +53,9 @@ export interface PlayerSnapshot {
   combo: number;
   ultimate: number;
   wins: number;
+  ultimateReady?: boolean;
+  lastProcessedInput?: number;
+  timestamp?: number;
 }
 
 export interface GameStateSnapshot {
