@@ -10,6 +10,7 @@ export interface GameInput {
 
 export class InputManager {
   private keys: Set<string> = new Set();
+  private cachedInput: GameInput = { left: false, right: false, up: false, down: false, punch: false, kick: false, block: false };
 
   constructor() {
     if (typeof window === 'undefined') return;
@@ -29,15 +30,15 @@ export class InputManager {
   };
 
   getInput(): GameInput {
-    return {
-      left: this.keys.has('ArrowLeft') || this.keys.has('KeyA'),
-      right: this.keys.has('ArrowRight') || this.keys.has('KeyD'),
-      up: this.keys.has('ArrowUp') || this.keys.has('KeyW'),
-      down: this.keys.has('ArrowDown') || this.keys.has('KeyS'),
-      punch: this.keys.has('KeyJ') || this.keys.has('Space'),
-      kick: this.keys.has('KeyK'),
-      block: this.keys.has('KeyL') || this.keys.has('ShiftLeft'),
-    };
+    const c = this.cachedInput;
+    c.left = this.keys.has('ArrowLeft') || this.keys.has('KeyA');
+    c.right = this.keys.has('ArrowRight') || this.keys.has('KeyD');
+    c.up = this.keys.has('ArrowUp') || this.keys.has('KeyW');
+    c.down = this.keys.has('ArrowDown') || this.keys.has('KeyS');
+    c.punch = this.keys.has('KeyJ') || this.keys.has('Space');
+    c.kick = this.keys.has('KeyK');
+    c.block = this.keys.has('KeyL') || this.keys.has('ShiftLeft');
+    return c;
   }
 
   destroy(): void {

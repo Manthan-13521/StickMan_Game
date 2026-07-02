@@ -193,50 +193,58 @@ export class Stickman {
     const headRadius = 7;
 
     const p = this.currentPose;
-    const fx = (x: number, y: number) => ({ x: originX + x * dir, y: originY + y });
-    const head = fx(p.head.x, p.head.y);
+    const ox = originX;
+    const oy = originY;
+
+    const hx = ox + p.head.x * dir;
+    const hy = oy + p.head.y;
 
     if (this.flashTimer > 0) {
       g.fillStyle(this.flashColor, alpha);
-      g.fillCircle(head.x, head.y, headRadius + 2);
+      g.fillCircle(hx, hy, headRadius + 2);
     }
 
     g.lineStyle(3, color, alpha);
     g.fillStyle(color, 0.15);
-    g.fillCircle(head.x, head.y, headRadius);
-    g.strokeCircle(head.x, head.y, headRadius);
+    g.fillCircle(hx, hy, headRadius);
+    g.strokeCircle(hx, hy, headRadius);
 
-    const neck = fx(p.neck.x, p.neck.y);
-    const shoulder = fx(p.shoulder.x, p.shoulder.y);
-    const hip = fx(p.hip.x, p.hip.y);
+    const nx = ox + p.neck.x * dir;
+    const ny = oy + p.neck.y;
+    const sx = ox + p.shoulder.x * dir;
+    const sy = oy + p.shoulder.y;
+    const hix = ox + p.hip.x * dir;
+    const hiy = oy + p.hip.y;
 
     g.beginPath();
-    g.moveTo(neck.x, neck.y);
-    g.lineTo(shoulder.x, shoulder.y);
-    g.lineTo(hip.x, hip.y);
+    g.moveTo(nx, ny);
+    g.lineTo(sx, sy);
+    g.lineTo(hix, hiy);
     g.stroke();
 
-    const drawLimb = (from: { x: number; y: number }, joint: Joint, to: Joint) => {
-      const j = fx(joint.x, joint.y);
-      const t = fx(to.x, to.y);
+    const drawLimb = (fx: number, fy: number, jx: number, jy: number, tx: number, ty: number) => {
+      const jx2 = ox + jx * dir;
+      const jy2 = oy + jy;
+      const tx2 = ox + tx * dir;
+      const ty2 = oy + ty;
       g.beginPath();
-      g.moveTo(from.x, from.y);
-      g.lineTo(j.x, j.y);
-      g.lineTo(t.x, t.y);
+      g.moveTo(fx, fy);
+      g.lineTo(jx2, jy2);
+      g.lineTo(tx2, ty2);
       g.stroke();
 
       g.fillStyle(color, alpha);
-      g.fillCircle(j.x, j.y, 2);
+      g.fillCircle(jx2, jy2, 2);
     };
 
-    drawLimb({ x: shoulder.x, y: shoulder.y }, p.elbowL, p.handL);
-    drawLimb({ x: shoulder.x, y: shoulder.y }, p.elbowR, p.handR);
-    drawLimb({ x: hip.x, y: hip.y }, p.kneeL, p.footL);
-    drawLimb({ x: hip.x, y: hip.y }, p.kneeR, p.footR);
+    drawLimb(sx, sy, p.elbowL.x, p.elbowL.y, p.handL.x, p.handL.y);
+    drawLimb(sx, sy, p.elbowR.x, p.elbowR.y, p.handR.x, p.handR.y);
+    drawLimb(hix, hiy, p.kneeL.x, p.kneeL.y, p.footL.x, p.footL.y);
+    drawLimb(hix, hiy, p.kneeR.x, p.kneeR.y, p.footR.x, p.footR.y);
 
     g.fillStyle(color, alpha);
-    g.fillCircle(shoulder.x, shoulder.y, 2);
-    g.fillCircle(hip.x, hip.y, 2);
+    g.fillCircle(sx, sy, 2);
+    g.fillCircle(hix, hiy, 2);
   }
 
   destroy(): void {
@@ -245,27 +253,31 @@ export class Stickman {
 
   private lerpPose(t: number): void {
     const lerp = (a: number, b: number) => a + (b - a) * t;
-    const lerpJoint = (a: Joint, b: Joint): Joint => ({
-      x: lerp(a.x, b.x), y: lerp(a.y, b.y), angle: lerp(a.angle, b.angle),
-    });
-    const lerpPt = (a: { x: number; y: number }, b: { x: number; y: number }) => ({
-      x: lerp(a.x, b.x), y: lerp(a.y, b.y),
-    });
+    const cp = this.currentPose;
+    const tp = this.targetPose;
 
-    this.currentPose = {
-      head: lerpPt(this.currentPose.head, this.targetPose.head),
-      neck: lerpPt(this.currentPose.neck, this.targetPose.neck),
-      shoulder: lerpPt(this.currentPose.shoulder, this.targetPose.shoulder),
-      elbowL: lerpJoint(this.currentPose.elbowL, this.targetPose.elbowL),
-      handL: lerpJoint(this.currentPose.handL, this.targetPose.handL),
-      elbowR: lerpJoint(this.currentPose.elbowR, this.targetPose.elbowR),
-      handR: lerpJoint(this.currentPose.handR, this.targetPose.handR),
-      hip: lerpPt(this.currentPose.hip, this.targetPose.hip),
-      kneeL: lerpJoint(this.currentPose.kneeL, this.targetPose.kneeL),
-      footL: lerpJoint(this.currentPose.footL, this.targetPose.footL),
-      kneeR: lerpJoint(this.currentPose.kneeR, this.targetPose.kneeR),
-      footR: lerpJoint(this.currentPose.footR, this.targetPose.footR),
+    const lerpPt = (a: { x: number; y: number }, b: { x: number; y: number }, out: { x: number; y: number }) => {
+      out.x = lerp(a.x, b.x);
+      out.y = lerp(a.y, b.y);
     };
+    const lerpJoint = (a: Joint, b: Joint, out: Joint) => {
+      out.x = lerp(a.x, b.x);
+      out.y = lerp(a.y, b.y);
+      out.angle = lerp(a.angle, b.angle);
+    };
+
+    lerpPt(cp.head, tp.head, cp.head);
+    lerpPt(cp.neck, tp.neck, cp.neck);
+    lerpPt(cp.shoulder, tp.shoulder, cp.shoulder);
+    lerpJoint(cp.elbowL, tp.elbowL, cp.elbowL);
+    lerpJoint(cp.handL, tp.handL, cp.handL);
+    lerpJoint(cp.elbowR, tp.elbowR, cp.elbowR);
+    lerpJoint(cp.handR, tp.handR, cp.handR);
+    lerpPt(cp.hip, tp.hip, cp.hip);
+    lerpJoint(cp.kneeL, tp.kneeL, cp.kneeL);
+    lerpJoint(cp.footL, tp.footL, cp.footL);
+    lerpJoint(cp.kneeR, tp.kneeR, cp.kneeR);
+    lerpJoint(cp.footR, tp.footR, cp.footR);
   }
 
   private easeInOut(t: number): number {

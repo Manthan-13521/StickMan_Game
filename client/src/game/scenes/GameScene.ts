@@ -28,6 +28,8 @@ interface CombatState {
   alive: boolean;
 }
 
+const P2_INPUT: GameInput = { left: false, right: false, up: false, down: false, punch: false, kick: false, block: false };
+
 function createCombatState(wins = 0): CombatState {
   return {
     health: PLAYER_CONFIG.MAX_HEALTH,
@@ -231,7 +233,8 @@ export class GameScene extends Phaser.Scene {
         if (input.punch) moveX2 += 1;
         c1.isBlocking = input.block && p1.grounded;
         updatePhysics(p1, dt, moveX2, input.block);
-        this.handleLocalAttack(1, { punch: input.kick, kick: false, block: false, left: false, right: false, up: false, down: false });
+        P2_INPUT.punch = input.kick;
+      this.handleLocalAttack(1, P2_INPUT);
       }
     }
 
