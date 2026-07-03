@@ -361,7 +361,7 @@ export class GameScene extends Phaser.Scene {
       }
 
       defC.health = Math.max(0, defC.health - damage);
-      def.vy = (config as any).knockbackY || -50;
+      def.vy = config.knockbackY;
       def.vx = knockDir * config.knockback;
       defC.hitstopTimer = Math.round((config.hitstop as number) / 16) + 1;
       defC.inHitstun = true;
@@ -462,8 +462,9 @@ export class GameScene extends Phaser.Scene {
   private getVisualStance(index: number, phys: PhysicalState, cs: CombatState): PlayerStance {
     if (cs.health <= 0) return PlayerStance.DEAD;
     if (cs.inHitstun) return PlayerStance.HIT;
-    if (cs.attackTimer > 0 && cs.attackType === 'kick') return PlayerStance.KICKING;
-    if (cs.attackTimer > 0) return PlayerStance.PUNCHING;
+    if (cs.attackTimer > 0 && cs.attackType) {
+      return cs.attackType === 'kick' ? PlayerStance.KICKING : PlayerStance.PUNCHING;
+    }
     if (cs.isBlocking) return PlayerStance.BLOCKING;
     if (!phys.grounded) {
       return phys.vy < 0 ? PlayerStance.JUMPING : PlayerStance.FALLING;
