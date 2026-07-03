@@ -25,6 +25,7 @@ interface CombatState {
   isBlocking: boolean;
   inHitstun: boolean;
   invincibilityTimer: number;
+  knockbackTimer: number;
   alive: boolean;
 }
 
@@ -44,6 +45,7 @@ function createCombatState(wins = 0): CombatState {
     isBlocking: false,
     inHitstun: false,
     invincibilityTimer: 0,
+    knockbackTimer: 0,
     alive: true,
   };
 }
@@ -122,6 +124,7 @@ export class GameScene extends Phaser.Scene {
       if (cs.hitstopTimer > 0) cs.hitstopTimer--;
       if (cs.invincibilityTimer > 0) cs.invincibilityTimer--;
       if (cs.attackTimer > 0) cs.attackTimer--;
+      if (cs.knockbackTimer > 0) cs.knockbackTimer--;
     }
 
     if (this.localMode && this.inputManager) {
@@ -223,9 +226,13 @@ export class GameScene extends Phaser.Scene {
 
     if (c0.health > 0) {
       if (c0.hitstopTimer > 0 || c0.inHitstun) {
+        if (c0.knockbackTimer <= 0) {
+          p0.vx *= 0.92;
+        }
         updatePhysics(p0, dt, 0, false);
         if (p0.grounded && c0.invincibilityTimer <= 0) {
           c0.inHitstun = false;
+          p0.vx = 0;
         }
       } else {
         let moveX1 = 0;
@@ -239,9 +246,13 @@ export class GameScene extends Phaser.Scene {
 
     if (c1.health > 0) {
       if (c1.hitstopTimer > 0 || c1.inHitstun) {
+        if (c1.knockbackTimer <= 0) {
+          p1.vx *= 0.92;
+        }
         updatePhysics(p1, dt, 0, false);
         if (p1.grounded && c1.invincibilityTimer <= 0) {
           c1.inHitstun = false;
+          p1.vx = 0;
         }
       } else {
         let moveX2 = 0;
@@ -336,6 +347,7 @@ export class GameScene extends Phaser.Scene {
       defC.hitstopTimer = Math.floor((config.hitstop as number) / 16);
       defC.inHitstun = true;
       defC.invincibilityTimer = Math.floor(PLAYER_CONFIG.INVINCIBILITY_DURATION / 16);
+      defC.knockbackTimer = Math.floor(PLAYER_CONFIG.KNOCKBACK_DURATION / 16);
 
       atkC.hitstopTimer = Math.floor((config.hitstop as number) / 16);
       atkC.combo++;
