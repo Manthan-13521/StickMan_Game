@@ -47,6 +47,7 @@ export class GameEngine {
     }
 
     this.physics.update(this.players);
+
     this.combat.checkCollisions(this.players);
 
     for (const player of this.players) {

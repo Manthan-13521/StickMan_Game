@@ -75,10 +75,6 @@ export function updateCombatTimers(state: CombatState, dt: number): void {
     state.invincibilityTimer = Math.max(0, state.invincibilityTimer - dt);
   }
 
-  if (state.knockbackTimer > 0) {
-    state.knockbackTimer = Math.max(0, state.knockbackTimer - dt);
-  }
-
   if (state.attackTimer > 0) {
     state.attackTimer = Math.max(0, state.attackTimer - dt);
     if (state.attackTimer <= 0) {

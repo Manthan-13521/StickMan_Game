@@ -78,10 +78,13 @@ class NetworkClient {
     this.socket?.emit(ClientEvent.JOIN_ROOM, code);
   }
 
-  sendInput(input: Omit<PlayerInput, 'sequence' | 'timestamp'>): void {
-    this.sequence++;
+  sendInput(input: Omit<PlayerInput, 'sequence' | 'timestamp'>, seq?: number): number {
+    if (seq === undefined) {
+      this.sequence++;
+      seq = this.sequence;
+    }
     const packet: PlayerInput = {
-      sequence: this.sequence,
+      sequence: seq,
       left: input.left,
       right: input.right,
       up: input.up,
@@ -92,6 +95,7 @@ class NetworkClient {
       timestamp: Date.now(),
     };
     this.socket?.emit(ClientEvent.PLAYER_INPUT, packet);
+    return seq;
   }
 
   requestRematch(): void {

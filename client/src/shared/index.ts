@@ -4,3 +4,26 @@ export { GAME_CONFIG, PLAYER_CONFIG, ATTACK_CONFIG, COMBAT_CONFIG, ROOM_CODE_LEN
 export { PlayerStance, GamePhase, MatchResult } from './types';
 export type { PlayerInput, PlayerSnapshot, GameStateSnapshot, RoomInfo, CreateRoomResponse, JoinRoomResponse, ErrorResponse } from './types';
 export { validateRoomCode, validatePlayerInput, sanitizePlayerInput, validateSnapshot, clampHealth, clampPosition, validateInputRate } from './validation';
+
+export type { CombatState, AttackConfig, AttackType } from 'shared/src/combat/types';
+export type { HitResult } from 'shared/src/combat/engine';
+export {
+  createCombatState,
+  getAttackConfig,
+  getAttackTotalDuration,
+  getAttackPhase,
+  updateCombatTimers,
+  handleAttackInput,
+  startAttack,
+  checkHit,
+  applyHit,
+  updateStance,
+} from 'shared/src/combat/engine';
+
+export type { PhysicalState } from 'shared/src/physics/engine';
+export {
+  createPhysicsState,
+  updatePhysics,
+  pushApart,
+  applyKnockback,
+} from 'shared/src/physics/engine';

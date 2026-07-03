@@ -111,6 +111,19 @@ body {
   transform: translateY(-2px);
 }
 
+.btn-tertiary {
+  @apply relative overflow-hidden rounded-xl px-8 py-4 font-display font-bold text-slate-400 text-lg transition-all duration-300;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.btn-tertiary:hover {
+  color: white;
+  background: rgba(255, 255, 255, 0.06);
+  border-color: rgba(255, 255, 255, 0.15);
+  transform: translateY(-2px);
+}
+
 .btn-accent {
   @apply relative overflow-hidden rounded-xl px-8 py-4 font-display font-bold text-white text-lg transition-all duration-300;
   background: linear-gradient(135deg, var(--color-accent), var(--color-primary));

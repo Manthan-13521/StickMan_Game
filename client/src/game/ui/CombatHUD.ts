@@ -10,6 +10,12 @@ interface HUDPlayerData {
   ultimateReady: boolean;
 }
 
+interface HealthAnimState {
+  display: number;
+  target: number;
+  delay: number;
+}
+
 export class CombatHUD {
   private scene: Phaser.Scene;
   private graphics: Phaser.GameObjects.Graphics;
@@ -21,10 +27,15 @@ export class CombatHUD {
   private p1Color = 0x6366f1;
   private p2Color = 0xec4899;
   private maxRounds = 3;
+  private healthAnim: [HealthAnimState, HealthAnimState];
 
   constructor(scene: Phaser.Scene) {
     this.scene = scene;
     this.graphics = scene.add.graphics().setDepth(100);
+    this.healthAnim = [
+      { display: PLAYER_CONFIG.MAX_HEALTH, target: PLAYER_CONFIG.MAX_HEALTH, delay: 0 },
+      { display: PLAYER_CONFIG.MAX_HEALTH, target: PLAYER_CONFIG.MAX_HEALTH, delay: 0 },
+    ];
 
     const style: Phaser.Types.GameObjects.Text.TextStyle = {
       fontFamily: 'monospace',
@@ -79,8 +90,11 @@ export class CombatHUD {
     const margin = 24;
     const topY = 12;
 
-    this.drawHealthBar(margin, topY + 22, barW, barH, p1.health, p1.maxHealth, this.p1Color, true);
-    this.drawHealthBar(w - margin - barW, topY + 22, barW, barH, p2.health, p2.maxHealth, this.p2Color, false);
+    this.tickHealthAnim(this.healthAnim[0], p1.health);
+    this.tickHealthAnim(this.healthAnim[1], p2.health);
+
+    this.drawHealthBar(margin, topY + 22, barW, barH, this.healthAnim[0].display, p1.health, p1.maxHealth, this.p1Color, true);
+    this.drawHealthBar(w - margin - barW, topY + 22, barW, barH, this.healthAnim[1].display, p2.health, p2.maxHealth, this.p2Color, false);
 
     this.nameTexts[0].setPosition(margin + 4, topY + 2);
     this.nameTexts[1].setPosition(w - margin - 4, topY + 2);
@@ -105,9 +119,24 @@ export class CombatHUD {
     this.comboTexts[1].setText(comboP2).setPosition(w - margin - barW / 2, ultY + 26).setVisible(p2.combo > 0);
   }
 
-  private drawHealthBar(x: number, y: number, w: number, h: number, health: number, maxHealth: number, color: number, leftAlign: boolean): void {
+  private tickHealthAnim(anim: HealthAnimState, target: number): void {
+    anim.target = target;
+    if (target < anim.display) {
+      anim.delay = 6;
+    }
+    if (anim.delay > 0) {
+      anim.delay--;
+    } else if (anim.display > target) {
+      anim.display = Math.max(target, anim.display - 2.5);
+    } else if (anim.display < target) {
+      anim.display = Math.min(target, anim.display + 4);
+    }
+  }
+
+  private drawHealthBar(x: number, y: number, w: number, h: number, displayHealth: number, actualHealth: number, maxHealth: number, color: number, leftAlign: boolean): void {
     const g = this.graphics;
-    const ratio = Math.max(0, health / maxHealth);
+    const displayRatio = Math.max(0, displayHealth / maxHealth);
+    const actualRatio = Math.max(0, actualHealth / maxHealth);
 
     g.fillStyle(0x1e1b4b, 0.85);
     g.fillRoundedRect(x, y, w, h, 4);
@@ -115,13 +144,20 @@ export class CombatHUD {
     const innerW = w - 4;
     const innerH = h - 4;
     const fillX = x + 2;
-    const fillW = innerW * ratio;
+
+    if (actualRatio < displayRatio) {
+      const ghostW = innerW * displayRatio;
+      g.fillStyle(0xffffff, 0.15);
+      g.fillRect(leftAlign ? fillX : fillX + innerW - ghostW, y + 2, ghostW, innerH);
+    }
+
+    const displayFillW = innerW * actualRatio;
     const fillColor = color === this.p1Color
-      ? (ratio > 0.3 ? 0x6366f1 : 0xef4444)
-      : (ratio > 0.3 ? 0xec4899 : 0xef4444);
+      ? (actualRatio > 0.3 ? 0x6366f1 : 0xef4444)
+      : (actualRatio > 0.3 ? 0xec4899 : 0xef4444);
 
     g.fillStyle(fillColor, 0.9);
-    g.fillRect(leftAlign ? fillX : fillX + innerW - fillW, y + 2, fillW, innerH);
+    g.fillRect(leftAlign ? fillX : fillX + innerW - displayFillW, y + 2, displayFillW, innerH);
 
     g.lineStyle(1, 0xffffff, 0.15);
     g.strokeRoundedRect(x, y, w, h, 4);

@@ -12,12 +12,14 @@ interface GameStore {
   connected: boolean;
   ping: number;
   error: string | null;
+  navigateToMenu: boolean;
   setRoomCode: (code: string) => void;
   setPlayerIndex: (index: number) => void;
   setGameState: (state: GameStateSnapshot) => void;
   setConnected: (connected: boolean) => void;
   setPing: (ping: number) => void;
   setError: (error: string | null) => void;
+  exitToMenu: () => void;
   reset: () => void;
 }
 
@@ -31,6 +33,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
   connected: false,
   ping: 0,
   error: null,
+  navigateToMenu: false,
 
   setRoomCode: (code) => set({ roomCode: code }),
 
@@ -49,6 +52,8 @@ export const useGameStore = create<GameStore>((set, get) => ({
   setPing: (ping) => set({ ping }),
   setError: (error) => set({ error }),
 
+  exitToMenu: () => set({ navigateToMenu: true }),
+
   reset: () =>
     set({
       phase: GamePhase.WAITING,
@@ -59,5 +64,6 @@ export const useGameStore = create<GameStore>((set, get) => ({
       opponent: null,
       ping: 0,
       error: null,
+      navigateToMenu: false,
     }),
 }));

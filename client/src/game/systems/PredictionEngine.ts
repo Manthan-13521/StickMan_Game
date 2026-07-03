@@ -17,7 +17,7 @@ export class PredictionEngine {
 
   predict(input: PlayerInput, dt: number): PhysicalState {
     const moveX = (input.right ? 1 : 0) - (input.left ? 1 : 0);
-    updatePhysics(this.predictedState, dt, moveX, input.up);
+    updatePhysics(this.predictedState, dt, moveX, input.up, input.down, false);
 
     this.inputHistory.push({
       input: JSON.parse(JSON.stringify(input)),
@@ -54,7 +54,7 @@ export class PredictionEngine {
 
     for (const frame of unprocessedInputs) {
       const moveX = (frame.input.right ? 1 : 0) - (frame.input.left ? 1 : 0);
-      updatePhysics(this.predictedState, 1 / 50, moveX, frame.input.up);
+      updatePhysics(this.predictedState, 1 / 50, moveX, frame.input.up, frame.input.down, false);
     }
 
     const keepCount = Math.min(unprocessedInputs.length + 10, this.inputHistory.length);

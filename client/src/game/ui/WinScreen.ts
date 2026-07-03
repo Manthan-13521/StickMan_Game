@@ -108,7 +108,7 @@ export class WinScreen {
       this.subtitle.setText('The match is a draw!');
     }
     this.subtitle.setAlpha(0);
-    this.hint.setText('');
+    this.hint.setText('Press ESC to return to menu');
     this.hint.setAlpha(0);
 
     this.scene.tweens.add({
@@ -125,6 +125,13 @@ export class WinScreen {
       alpha: 1,
       duration: 400,
       delay: 500,
+    });
+
+    this.scene.tweens.add({
+      targets: this.hint,
+      alpha: 1,
+      duration: 300,
+      delay: 900,
     });
   }
 

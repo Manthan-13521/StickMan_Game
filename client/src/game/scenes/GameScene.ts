@@ -13,6 +13,10 @@ import { WinScreen } from '../ui/WinScreen';
 import { ParticleEffects } from '../effects/ParticleEffects';
 import { SoundManager, soundManager } from '../effects/SoundManager';
 import { DamageNumbers } from '../effects/DamageNumber';
+import { networkClient } from '../networking/NetworkClient';
+import { PredictionEngine } from '../systems/PredictionEngine';
+import { InterpolationEngine } from '../systems/InterpolationEngine';
+import { useGameStore } from '@/stores/gameStore';
 
 interface CombatState {
   health: number;
@@ -52,6 +56,25 @@ function createCombatState(wins = 0): CombatState {
   };
 }
 
+function snapshotToCombatState(snap: PlayerSnapshot): CombatState {
+  return {
+    health: snap.health,
+    maxHealth: snap.maxHealth,
+    combo: snap.combo ?? 0,
+    ultimate: snap.ultimate ?? 0,
+    ultimateReady: snap.ultimateReady ?? false,
+    wins: snap.wins ?? 0,
+    hitstopTimer: 0,
+    attackTimer: 0,
+    attackType: null,
+    isBlocking: false,
+    inHitstun: false,
+    invincibilityTimer: 0,
+    knockbackTimer: 0,
+    alive: snap.health > 0,
+  };
+}
+
 export class GameScene extends Phaser.Scene {
   private stickmen: Stickman[] = [];
   private physStates: PhysicalState[] = [];
@@ -68,18 +91,33 @@ export class GameScene extends Phaser.Scene {
   private soundManager: SoundManager | null = null;
   private damageNumbers: DamageNumbers | null = null;
 
+  private predictionEngine: PredictionEngine | null = null;
+  private interpEngine: InterpolationEngine | null = null;
+  private playerIndex: number = 0;
+  private lastServerTick: number = -1;
+  private inputSeq: number = 0;
+  private localAttackOverride: { timer: number; type: string } | null = null;
+  private localBlockOverride = false;
+
   private round = 1;
   private roundTimer: number = GAME_CONFIG.ROUND_DURATION;
   private fighting = false;
   private koTimer = 0;
   private roundOver = false;
-  private KO_DELAY_FRAMES = GAME_CONFIG.KO_DELAY;
 
   constructor() {
     super({ key: 'GameScene' });
   }
 
   create(): void {
+    const store = useGameStore.getState();
+    if (store.playerIndex !== null) {
+      this.localMode = false;
+      this.playerIndex = store.playerIndex;
+    } else {
+      this.localMode = true;
+    }
+
     this.drawArena();
     this.cameras.main.setBackgroundColor('#0f0d2e');
 
@@ -97,6 +135,25 @@ export class GameScene extends Phaser.Scene {
     this.input.keyboard?.once('keydown', () => {
       this.soundManager?.init();
     });
+
+    this.input.keyboard?.on('keydown-ESC', () => {
+      useGameStore.getState().exitToMenu();
+    });
+
+    if (!this.localMode) {
+      const startX = this.playerIndex === 0
+        ? PLAYER_CONFIG.STAGE_LEFT + 200
+        : PLAYER_CONFIG.STAGE_RIGHT - 200;
+      const startY = PLAYER_CONFIG.STAGE_GROUND - PLAYER_CONFIG.HEIGHT;
+      const facingRight = this.playerIndex === 0;
+
+      this.predictionEngine = new PredictionEngine(startX, startY, facingRight);
+      this.interpEngine = new InterpolationEngine();
+      this.networkState = null;
+      this.lastServerTick = -1;
+
+      this.applyServerSnapshot(store.gameState);
+    }
 
     this.round = 1;
     this.roundTimer = GAME_CONFIG.ROUND_DURATION;
@@ -130,42 +187,20 @@ export class GameScene extends Phaser.Scene {
 
     this.walkPhase += dt * 8;
 
-    for (let i = 0; i < 2; i++) {
-      const cs = this.combatStates[i];
-      if (cs.hitstopTimer > 0) cs.hitstopTimer--;
-      if (cs.invincibilityTimer > 0) cs.invincibilityTimer--;
-      if (cs.attackTimer > 0) cs.attackTimer--;
-      if (cs.knockbackTimer > 0) cs.knockbackTimer--;
-    }
+    this.stateTimerTick();
 
-    if (this.localMode && this.inputManager) {
-      const input = this.inputManager.getInput();
-      this.handleLocalInput(input, dt);
-    }
+    const hitstopActive = this.combatStates[0].hitstopTimer > 0 || this.combatStates[1].hitstopTimer > 0;
 
-    for (let i = 0; i < 2; i++) {
-      const phys = this.physStates[i];
-      const cs = this.combatStates[i];
-      const stickman = this.stickmen[i];
-
-      const stance = this.getVisualStance(i, phys, cs);
-      stickman.setStance(stance);
-      stickman.setWalkPhase(this.walkPhase + i * Math.PI);
-
-      if (cs.hitstopTimer > 0 && cs.hitstopTimer % 4 < 2) {
-        stickman.flash(0xff4444);
+    if (!hitstopActive) {
+      if (this.localMode && this.inputManager) {
+        const input = this.inputManager.getInput();
+        this.handleLocalInput(input, dt);
+      } else if (!this.localMode) {
+        this.handleNetworkUpdate(dt);
       }
-
-      stickman.update(dt);
-
-      const color = i === 0 ? 0x6366f1 : 0xec4899;
-      stickman.render(
-        phys.x + PLAYER_CONFIG.WIDTH / 2,
-        phys.y + PLAYER_CONFIG.HEIGHT,
-        phys.facingRight,
-        color,
-      );
     }
+
+    this.renderFighters(dt);
 
     this.resolveRound();
 
@@ -193,16 +228,148 @@ export class GameScene extends Phaser.Scene {
     );
   }
 
+  private stateTimerTick(): void {
+    for (let i = 0; i < 2; i++) {
+      const cs = this.combatStates[i];
+      if (cs.hitstopTimer > 0) cs.hitstopTimer--;
+      if (cs.invincibilityTimer > 0) cs.invincibilityTimer--;
+      if (cs.attackTimer > 0) cs.attackTimer--;
+      if (cs.knockbackTimer > 0) cs.knockbackTimer--;
+    }
+
+    if (this.localAttackOverride) {
+      this.localAttackOverride.timer--;
+      if (this.localAttackOverride.timer <= 0) {
+        this.localAttackOverride = null;
+      }
+    }
+  }
+
+  private handleNetworkUpdate(dt: number): void {
+    const store = useGameStore.getState();
+    const serverState = store.gameState;
+
+    if (serverState && serverState.tick !== this.lastServerTick) {
+      this.lastServerTick = serverState.tick;
+      this.applyServerSnapshot(serverState);
+    }
+
+    if (this.inputManager) {
+      const rawInput = this.playerIndex === 0
+        ? this.inputManager.getInput()
+        : this.inputManager.getP2Input();
+
+      const hasInput = rawInput.punch || rawInput.kick || rawInput.block ||
+                       rawInput.up || rawInput.down || rawInput.left || rawInput.right;
+
+      this.inputSeq++;
+      const seq = this.inputSeq;
+
+      if (hasInput) {
+        networkClient.sendInput(rawInput, seq);
+      }
+
+      const predState = this.predictionEngine?.predict(
+        { ...rawInput, sequence: seq, timestamp: Date.now() },
+        dt,
+      );
+      if (predState) {
+        this.physStates[this.playerIndex] = predState;
+      }
+
+      const cs = this.combatStates[this.playerIndex];
+      cs.isBlocking = rawInput.block && (this.physStates[this.playerIndex]?.grounded ?? true);
+      this.localBlockOverride = cs.isBlocking;
+
+      if (!cs.inHitstun && cs.hitstopTimer <= 0) {
+        const both = rawInput.punch && rawInput.kick;
+        if (both && cs.ultimate >= COMBAT_CONFIG.ULTIMATE_COST && cs.attackTimer <= 0) {
+          cs.attackType = 'ultimate';
+          cs.ultimate = 0;
+          cs.ultimateReady = false;
+          const f = this.getAttackFramesSafe('ultimate');
+          cs.attackTimer = f.total;
+          this.localAttackOverride = { timer: f.total, type: 'ultimate' };
+          const p = this.physStates[this.playerIndex];
+          if (p) {
+            this.cameras.main.shake(200, 0.01);
+            this.particles?.ultimateBurst(p.x + PLAYER_CONFIG.WIDTH / 2, p.y + PLAYER_CONFIG.HEIGHT / 2);
+          }
+        } else if (both && cs.attackTimer <= 0) {
+          cs.attackType = 'heavy';
+          const f = this.getAttackFramesSafe('heavy');
+          cs.attackTimer = f.total;
+          this.localAttackOverride = { timer: f.total, type: 'heavy' };
+        } else if (rawInput.punch && cs.attackTimer <= 0) {
+          cs.attackType = 'punch';
+          const f = this.getAttackFramesSafe('punch');
+          cs.attackTimer = f.total;
+          this.localAttackOverride = { timer: f.total, type: 'punch' };
+        } else if (rawInput.kick && cs.attackTimer <= 0) {
+          cs.attackType = 'kick';
+          const f = this.getAttackFramesSafe('kick');
+          cs.attackTimer = f.total;
+          this.localAttackOverride = { timer: f.total, type: 'kick' };
+        }
+      }
+    }
+  }
+
+  private getAttackFramesSafe(type: string): { startup: number; active: number; recovery: number; total: number } {
+    const cfg = this.getAttackConfig(type);
+    if (!cfg) return { startup: 3, active: 3, recovery: 6, total: 12 };
+    const startup = Math.round(cfg.startup / 16) || 1;
+    const active = Math.round(cfg.active / 16) || 1;
+    const recovery = Math.round(cfg.recovery / 16) || 1;
+    return { startup, active, recovery, total: startup + active + recovery };
+  }
+
+  private applyServerSnapshot(snapshot: GameStateSnapshot | null): void {
+    if (!snapshot || !snapshot.players) return;
+    this.networkState = snapshot;
+
+    if (!this.predictionEngine || !this.interpEngine) return;
+
+    const localSnap = snapshot.players[this.playerIndex];
+    const remoteSnap = snapshot.players[1 - this.playerIndex];
+
+    if (localSnap.health === localSnap.maxHealth && remoteSnap.health === remoteSnap.maxHealth && this.roundOver) {
+      this.roundOver = false;
+      this.koTimer = 0;
+      this.fighting = true;
+      this.localAttackOverride = null;
+      this.round = snapshot.round ?? this.round;
+    }
+
+    const remoteCS = snapshotToCombatState(remoteSnap);
+    this.combatStates[1 - this.playerIndex] = remoteCS;
+
+    const localCS = snapshotToCombatState(localSnap);
+    if (this.localAttackOverride) {
+      localCS.attackType = this.localAttackOverride.type as any;
+      localCS.attackTimer = this.localAttackOverride.timer;
+    }
+    localCS.isBlocking = this.localBlockOverride;
+    this.combatStates[this.playerIndex] = localCS;
+
+    this.predictionEngine.reconcile(localSnap);
+    this.physStates[this.playerIndex] = this.predictionEngine.state;
+
+    this.interpEngine.pushState(remoteSnap);
+  }
+
   private resetPositions(): void {
-    this.physStates = [
-      createPhysicsState(PLAYER_CONFIG.STAGE_LEFT + 200, PLAYER_CONFIG.STAGE_GROUND - PLAYER_CONFIG.HEIGHT, true),
-      createPhysicsState(PLAYER_CONFIG.STAGE_RIGHT - 200, PLAYER_CONFIG.STAGE_GROUND - PLAYER_CONFIG.HEIGHT, false),
-    ];
+    if (this.localMode) {
+      this.physStates = [
+        createPhysicsState(PLAYER_CONFIG.STAGE_LEFT + 200, PLAYER_CONFIG.STAGE_GROUND - PLAYER_CONFIG.HEIGHT, true),
+        createPhysicsState(PLAYER_CONFIG.STAGE_RIGHT - 200, PLAYER_CONFIG.STAGE_GROUND - PLAYER_CONFIG.HEIGHT, false),
+      ];
+    }
   }
 
   private renderIdle(): void {
     for (let i = 0; i < 2; i++) {
-      const phys = this.physStates[i];
+      const phys = this.physStates[i] ?? this.fallbackPhysics(i);
       const cs = this.combatStates[i];
       const stickman = this.stickmen[i];
 
@@ -226,6 +393,60 @@ export class GameScene extends Phaser.Scene {
     );
   }
 
+  private renderFighters(dt: number): void {
+    const remoteIndex = this.localMode ? -1 : (1 - this.playerIndex);
+    const localIndex = this.localMode ? -1 : this.playerIndex;
+
+    for (let i = 0; i < 2; i++) {
+      let phys: PhysicalState;
+      if (!this.localMode && i === localIndex && this.predictionEngine) {
+        phys = this.predictionEngine.state;
+        this.physStates[i] = phys;
+      } else if (!this.localMode && i === remoteIndex && this.interpEngine) {
+        const interp = this.interpEngine.interpolate(Date.now(), 80);
+        if (interp) {
+          phys = createPhysicsState(interp.x, interp.y, interp.facingRight);
+          phys.vx = interp.velocityX;
+          phys.vy = interp.velocityY;
+        } else {
+          phys = this.physStates[i] ?? this.fallbackPhysics(i);
+        }
+        this.physStates[i] = phys;
+      } else {
+        phys = this.physStates[i] ?? this.fallbackPhysics(i);
+      }
+
+      const cs = this.combatStates[i];
+      const stickman = this.stickmen[i];
+
+      const stance = this.getVisualStance(i, phys, cs);
+      stickman.setStance(stance);
+      stickman.setWalkPhase(this.walkPhase + i * Math.PI);
+
+      if (cs.hitstopTimer > 0 && cs.hitstopTimer % 4 < 2) {
+        stickman.flash(0xff4444);
+      }
+
+      stickman.update(dt);
+
+      const color = i === 0 ? 0x6366f1 : 0xec4899;
+      stickman.render(
+        phys.x + PLAYER_CONFIG.WIDTH / 2,
+        phys.y + PLAYER_CONFIG.HEIGHT,
+        phys.facingRight,
+        color,
+      );
+    }
+  }
+
+  private fallbackPhysics(index: number): PhysicalState {
+    return createPhysicsState(
+      index === 0 ? PLAYER_CONFIG.STAGE_LEFT + 200 : PLAYER_CONFIG.STAGE_RIGHT - 200,
+      PLAYER_CONFIG.STAGE_GROUND - PLAYER_CONFIG.HEIGHT,
+      index === 0,
+    );
+  }
+
   private handleLocalInput(input: GameInput, dt: number): void {
     const p0 = this.physStates[0];
     const p1 = this.physStates[1];
@@ -234,11 +455,9 @@ export class GameScene extends Phaser.Scene {
     const p2Input = this.inputManager?.getP2Input() ?? P2_INPUT;
 
     if (c0.health > 0) {
-      if (c0.hitstopTimer > 0 || c0.inHitstun) {
-        if (c0.knockbackTimer <= 0) {
-          p0.vx *= 0.92;
-        }
-        updatePhysics(p0, dt, 0, false);
+      const inHitstun0 = c0.hitstopTimer > 0 || c0.inHitstun;
+      if (inHitstun0) {
+        updatePhysics(p0, dt, 0, false, false, true);
         if (p0.grounded && c0.invincibilityTimer <= 0) {
           c0.inHitstun = false;
           p0.vx = 0;
@@ -249,16 +468,14 @@ export class GameScene extends Phaser.Scene {
         if (input.right) moveX1 += 1;
         c0.isBlocking = input.block && p0.grounded;
         this.handleLocalAttack(0, input);
-        updatePhysics(p0, dt, moveX1, input.up);
+        updatePhysics(p0, dt, moveX1, input.up, input.down, false);
       }
     }
 
     if (c1.health > 0) {
-      if (c1.hitstopTimer > 0 || c1.inHitstun) {
-        if (c1.knockbackTimer <= 0) {
-          p1.vx *= 0.92;
-        }
-        updatePhysics(p1, dt, 0, false);
+      const inHitstun1 = c1.hitstopTimer > 0 || c1.inHitstun;
+      if (inHitstun1) {
+        updatePhysics(p1, dt, 0, false, false, true);
         if (p1.grounded && c1.invincibilityTimer <= 0) {
           c1.inHitstun = false;
           p1.vx = 0;
@@ -269,7 +486,7 @@ export class GameScene extends Phaser.Scene {
         if (p2Input.right) moveX2 += 1;
         c1.isBlocking = p2Input.block && p1.grounded;
         this.handleLocalAttack(1, p2Input);
-        updatePhysics(p1, dt, moveX2, p2Input.up);
+        updatePhysics(p1, dt, moveX2, p2Input.up, p2Input.down, false);
       }
     }
 
@@ -549,5 +766,7 @@ export class GameScene extends Phaser.Scene {
     this.winScreen?.destroy();
     this.particles?.destroy();
     this.damageNumbers?.destroy();
+    this.predictionEngine = null;
+    this.interpEngine = null;
   }
 }

@@ -42,8 +42,16 @@ function GameView() {
 export default function HomePage() {
   const [view, setView] = useState<View>('menu');
   const [roomCode, setRoomCode] = useState('');
-  const { connected, error, setRoomCode: setStoreRoomCode, setPlayerIndex, setGameState, setConnected, setError, reset: resetStore } =
+  const { connected, error, navigateToMenu, setRoomCode: setStoreRoomCode, setPlayerIndex, setGameState, setConnected, setError, reset: resetStore } =
     useGameStore();
+
+  useEffect(() => {
+    if (navigateToMenu) {
+      resetStore();
+      setView('menu');
+      return;
+    }
+  }, [navigateToMenu, resetStore]);
 
   useEffect(() => {
     networkClient.connect();
@@ -156,16 +164,22 @@ export default function HomePage() {
               className="flex flex-col gap-4 w-full max-w-sm"
             >
               <button
+                onClick={() => setView('game')}
+                className="btn-primary w-full"
+              >
+                Local Play
+              </button>
+              <button
                 onClick={handleCreateRoom}
                 disabled={!connected}
-                className="btn-primary w-full disabled:opacity-40 disabled:cursor-not-allowed"
+                className="btn-secondary w-full disabled:opacity-40 disabled:cursor-not-allowed"
               >
                 {connected ? 'Create Room' : 'Connecting...'}
               </button>
               <button
                 onClick={() => setView('join')}
                 disabled={!connected}
-                className="btn-secondary w-full disabled:opacity-40 disabled:cursor-not-allowed"
+                className="btn-tertiary w-full disabled:opacity-40 disabled:cursor-not-allowed"
               >
                 Join Room
               </button>

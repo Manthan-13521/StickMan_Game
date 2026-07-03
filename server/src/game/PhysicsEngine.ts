@@ -1,6 +1,4 @@
 import { PLAYER_CONFIG, COMBAT_CONFIG } from 'shared';
-import { createPhysicalState } from 'shared';
-import { updatePhysics as sharedUpdatePhysics, pushApart as sharedPushApart } from 'shared';
 import { ServerPlayer } from './Player';
 
 export class PhysicsEngine {
@@ -9,13 +7,6 @@ export class PhysicsEngine {
 
     for (const player of players) {
       if (player.combat.health <= 0) continue;
-
-      if (player.knockbackTimer > 0 || player.hitstopTimer > 0) {
-        player.x += player.velocityX * dt;
-        player.y += player.velocityY * dt;
-        this.applyBounds(player);
-        continue;
-      }
 
       if (!player.combat.isGrounded) {
         let gravityMult = 1;
@@ -30,6 +21,10 @@ export class PhysicsEngine {
 
       this.applyBounds(player);
       this.checkGround(player);
+
+      if (player.knockbackTimer > 0) {
+        player.knockbackTimer = Math.max(0, player.knockbackTimer - 20);
+      }
     }
 
     this.pushApart(players);

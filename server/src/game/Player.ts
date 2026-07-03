@@ -1,19 +1,15 @@
 import { PLAYER_CONFIG } from 'shared';
 import type { PlayerInput } from 'shared';
 import { PlayerStance } from 'shared';
-import type { CombatState } from 'shared';
-import { createCombatState, getAttackConfig, handleAttackInput, updateCombatTimers, applyHit, updateStance, startAttack } from 'shared';
+import type { CombatState, PhysicalState } from 'shared';
+import { createCombatState, getAttackConfig, handleAttackInput, updateCombatTimers, createPhysicalState } from 'shared';
 
 const TICK_MS = 20;
 
 export class ServerPlayer {
   id: string;
   playerIndex: number;
-  x: number;
-  y: number;
-  velocityX: number = 0;
-  velocityY: number = 0;
-  facingRight: boolean;
+  phys: PhysicalState;
   combat: CombatState;
   input: PlayerInput | null = null;
   lastProcessedSeq: number = -1;
@@ -22,13 +18,23 @@ export class ServerPlayer {
   constructor(id: string, playerIndex: number, x: number, y: number, wins: number) {
     this.id = id;
     this.playerIndex = playerIndex;
-    this.x = x;
-    this.y = y;
-    this.facingRight = playerIndex === 0;
+    this.phys = createPhysicalState(x, y, playerIndex === 0);
+    this.phys.grounded = true;
     this.combat = createCombatState(wins);
-    this.combat.facingRight = this.facingRight;
+    this.combat.facingRight = playerIndex === 0;
     this.combat.isGrounded = true;
   }
+
+  get x(): number { return this.phys.x; }
+  set x(v: number) { this.phys.x = v; }
+  get y(): number { return this.phys.y; }
+  set y(v: number) { this.phys.y = v; }
+  get velocityX(): number { return this.phys.vx; }
+  set velocityX(v: number) { this.phys.vx = v; }
+  get velocityY(): number { return this.phys.vy; }
+  set velocityY(v: number) { this.phys.vy = v; }
+  get facingRight(): boolean { return this.phys.facingRight; }
+  set facingRight(v: boolean) { this.phys.facingRight = v; }
 
   get health(): number { return this.combat.health; }
   set health(v: number) { this.combat.health = v; }
@@ -90,8 +96,8 @@ export class ServerPlayer {
     }
 
     this.combat.health = Math.max(0, this.combat.health - damage);
-    this.velocityX = knockbackX;
-    this.velocityY = knockbackY;
+    this.phys.vx = knockbackX;
+    this.phys.vy = knockbackY;
     this.combat.hitstopTimer = hitStop;
     this.combat.knockbackTimer = PLAYER_CONFIG.KNOCKBACK_DURATION;
     this.combat.stance = PlayerStance.HIT;
@@ -101,7 +107,7 @@ export class ServerPlayer {
   }
 
   applyGroundBounce(): void {
-    this.velocityY = -400;
+    this.phys.vy = -400;
     this.combat.knockbackTimer = PLAYER_CONFIG.KNOCKBACK_DURATION;
   }
 
@@ -145,26 +151,48 @@ export class ServerPlayer {
 
     if (this.combat.attackType) return;
 
-    if (input.left && input.right) {
-      this.velocityX = 0;
-    } else if (input.left) {
-      this.velocityX = -PLAYER_CONFIG.SPEED;
-      this.facingRight = false;
-      this.combat.facingRight = false;
-    } else if (input.right) {
-      this.velocityX = PLAYER_CONFIG.SPEED;
-      this.facingRight = true;
-      this.combat.facingRight = true;
-    } else {
-      this.velocityX *= PLAYER_CONFIG.GROUND_FRICTION;
-    }
+    const moveX = (input.right ? 1 : 0) - (input.left ? 1 : 0);
+    const jump = input.up;
+    const fastFall = input.down && !this.combat.isGrounded;
+    const dt = TICK_MS / 1000;
 
-    if (input.up && this.combat.isGrounded) {
-      this.velocityY = PLAYER_CONFIG.JUMP_FORCE;
+    if (jump && this.combat.isGrounded) {
+      this.phys.vy = PLAYER_CONFIG.JUMP_FORCE;
       this.combat.isGrounded = false;
+      this.phys.jumpsLeft = 1;
+    } else if (jump && !this.combat.isGrounded && this.phys.jumpsLeft > 0) {
+      this.phys.vy = PLAYER_CONFIG.DOUBLE_JUMP_FORCE;
+      this.phys.jumpsLeft--;
     }
 
-    if (Math.abs(this.velocityX) > 10) {
+    if (!this.combat.isGrounded) {
+      if (fastFall && this.phys.vy > 0) {
+        this.phys.vy = Math.min(this.phys.vy + PLAYER_CONFIG.FAST_FALL_SPEED * dt, PLAYER_CONFIG.FAST_FALL_SPEED);
+      }
+      this.phys.vx *= PLAYER_CONFIG.AIR_FRICTION;
+    } else {
+      this.phys.jumpsLeft = 1;
+      this.phys.vx += moveX * PLAYER_CONFIG.WALK_ACCELERATION * dt;
+      if (moveX === 0) {
+        this.phys.vx *= PLAYER_CONFIG.GROUND_FRICTION;
+      }
+    }
+
+    if (moveX !== 0) {
+      this.phys.facingRight = moveX > 0;
+      this.combat.facingRight = moveX > 0;
+    }
+
+    const maxSpeed = PLAYER_CONFIG.SPEED;
+    if (Math.abs(this.phys.vx) > maxSpeed) {
+      this.phys.vx = Math.sign(this.phys.vx) * maxSpeed;
+    }
+
+    if (Math.abs(this.phys.vx) < 5) {
+      this.phys.vx = 0;
+    }
+
+    if (Math.abs(this.phys.vx) > 10) {
       this.combat.stance = PlayerStance.WALKING;
     } else {
       this.combat.stance = PlayerStance.IDLE;

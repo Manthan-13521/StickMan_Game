@@ -7,6 +7,7 @@ export interface PhysicalState {
   vy: number;
   grounded: boolean;
   facingRight: boolean;
+  jumpsLeft: number;
 }
 
 export function createPhysicsState(
@@ -14,7 +15,7 @@ export function createPhysicsState(
   y: number,
   facingRight: boolean,
 ): PhysicalState {
-  return { x, y, vx: 0, vy: 0, grounded: false, facingRight };
+  return { x, y, vx: 0, vy: 0, grounded: false, facingRight, jumpsLeft: 1 };
 }
 
 export function updatePhysics(
@@ -22,6 +23,7 @@ export function updatePhysics(
   dt: number,
   moveX: number,
   jump: boolean,
+  fastFall: boolean,
   inHitstun: boolean,
 ): void {
   if (inHitstun) {
@@ -34,15 +36,44 @@ export function updatePhysics(
     return;
   }
 
-  if (jump && state.grounded) {
-    state.vy = PLAYER_CONFIG.JUMP_FORCE;
-    state.grounded = false;
+  if (jump) {
+    if (state.grounded) {
+      state.vy = PLAYER_CONFIG.JUMP_FORCE;
+      state.grounded = false;
+      state.jumpsLeft = 1;
+    } else if (state.jumpsLeft > 0) {
+      state.vy = PLAYER_CONFIG.DOUBLE_JUMP_FORCE;
+      state.jumpsLeft--;
+    }
   }
 
   if (!state.grounded) {
     state.vy += PLAYER_CONFIG.GRAVITY * dt;
+
+    if (fastFall && state.vy > 0) {
+      state.vy += PLAYER_CONFIG.FAST_FALL_SPEED * dt;
+      state.vy = Math.min(state.vy, PLAYER_CONFIG.FAST_FALL_SPEED);
+    }
+
+    const airAccel = moveX * PLAYER_CONFIG.AIR_ACCELERATION * dt;
+    state.vx += airAccel;
+    state.vx *= PLAYER_CONFIG.AIR_FRICTION;
   } else {
-    state.vx = moveX * PLAYER_CONFIG.SPEED;
+    const accel = moveX * PLAYER_CONFIG.WALK_ACCELERATION * dt;
+    state.vx += accel;
+
+    if (moveX === 0) {
+      state.vx *= PLAYER_CONFIG.GROUND_FRICTION;
+    }
+  }
+
+  const maxSpeed = PLAYER_CONFIG.SPEED;
+  if (Math.abs(state.vx) > maxSpeed) {
+    state.vx = Math.sign(state.vx) * maxSpeed;
+  }
+
+  if (Math.abs(state.vx) < 5) {
+    state.vx = 0;
   }
 
   integrate(state, dt);
@@ -50,8 +81,8 @@ export function updatePhysics(
   checkGround(state);
   applyFacing(state, moveX);
 
-  if (Math.abs(state.vx) > PLAYER_CONFIG.SPEED) {
-    state.vx = Math.sign(state.vx) * PLAYER_CONFIG.SPEED;
+  if (state.grounded) {
+    state.jumpsLeft = 1;
   }
 }
 
