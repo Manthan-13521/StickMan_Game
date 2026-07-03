@@ -132,8 +132,6 @@ export class GameScene extends Phaser.Scene {
       this.handleLocalInput(input, dt);
     }
 
-    pushApart(this.physStates[0], this.physStates[1]);
-
     for (let i = 0; i < 2; i++) {
       const phys = this.physStates[i];
       const cs = this.combatStates[i];
@@ -264,7 +262,24 @@ export class GameScene extends Phaser.Scene {
       }
     }
 
+    pushApart(p0, p1);
     this.checkLocalCollisions();
+  }
+
+  private getAttackFrames(type: string | null): { startup: number; active: number; recovery: number; total: number } | null {
+    const cfg = this.getAttackConfig(type);
+    if (!cfg) return null;
+    const startup = Math.round(cfg.startup / 16);
+    const active = Math.round(cfg.active / 16);
+    const recovery = Math.round(cfg.recovery / 16);
+    return { startup, active, recovery, total: startup + active + recovery };
+  }
+
+  private isAttackInActiveWindow(cs: CombatState): boolean {
+    const frames = this.getAttackFrames(cs.attackType);
+    if (!frames) return false;
+    const elapsed = frames.total - cs.attackTimer;
+    return elapsed >= frames.startup && elapsed < frames.startup + frames.active;
   }
 
   private handleLocalAttack(index: number, input: GameInput): void {
@@ -278,7 +293,8 @@ export class GameScene extends Phaser.Scene {
       cs.attackType = 'ultimate';
       cs.ultimate = 0;
       cs.ultimateReady = false;
-      cs.attackTimer = (ATTACK_CONFIG.ULTIMATE.startup + ATTACK_CONFIG.ULTIMATE.active + ATTACK_CONFIG.ULTIMATE.recovery) / 16;
+      const f = this.getAttackFrames('ultimate')!;
+      cs.attackTimer = f.total;
       this.stickmen[index].setStance(PlayerStance.PUNCHING, true);
       this.cameras.main.shake(200, 0.01);
       const p = this.physStates[index];
@@ -288,21 +304,24 @@ export class GameScene extends Phaser.Scene {
 
     if (both) {
       cs.attackType = 'heavy';
-      cs.attackTimer = (ATTACK_CONFIG.HEAVY.startup + ATTACK_CONFIG.HEAVY.active + ATTACK_CONFIG.HEAVY.recovery) / 16;
+      const f = this.getAttackFrames('heavy')!;
+      cs.attackTimer = f.total;
       this.stickmen[index].setStance(PlayerStance.PUNCHING, true);
       return;
     }
 
     if (input.punch) {
       cs.attackType = 'punch';
-      cs.attackTimer = (ATTACK_CONFIG.PUNCH.startup + ATTACK_CONFIG.PUNCH.active + ATTACK_CONFIG.PUNCH.recovery) / 16;
+      const f = this.getAttackFrames('punch')!;
+      cs.attackTimer = f.total;
       this.stickmen[index].setStance(PlayerStance.PUNCHING, true);
       return;
     }
 
     if (input.kick) {
       cs.attackType = 'kick';
-      cs.attackTimer = (ATTACK_CONFIG.KICK.startup + ATTACK_CONFIG.KICK.active + ATTACK_CONFIG.KICK.recovery) / 16;
+      const f = this.getAttackFrames('kick')!;
+      cs.attackTimer = f.total;
       this.stickmen[index].setStance(PlayerStance.KICKING, true);
       return;
     }
@@ -317,7 +336,7 @@ export class GameScene extends Phaser.Scene {
 
       if (!atkC.attackType || atkC.attackTimer <= 0) continue;
       if (defC.health <= 0) continue;
-      if (defC.invincibilityTimer > 0) continue;
+      if (!this.isAttackInActiveWindow(atkC)) continue;
 
       const config = this.getAttackConfig(atkC.attackType);
       if (!config) continue;
@@ -327,7 +346,7 @@ export class GameScene extends Phaser.Scene {
       const dist = Math.abs(atkX - defX);
 
       if (dist >= config.range) continue;
-      if (Math.abs(atk.y - def.y) > PLAYER_CONFIG.HEIGHT * 1.2) continue;
+      if (Math.abs(atk.y - def.y) > PLAYER_CONFIG.HEIGHT * 1.5) continue;
 
       const knockDir = atk.facingRight ? 1 : -1;
       let damage: number = config.damage;
@@ -342,16 +361,18 @@ export class GameScene extends Phaser.Scene {
       }
 
       defC.health = Math.max(0, defC.health - damage);
-      def.vy = (config as any).knockbackY || -200;
+      def.vy = (config as any).knockbackY || -50;
       def.vx = knockDir * config.knockback;
-      defC.hitstopTimer = Math.floor((config.hitstop as number) / 16);
+      defC.hitstopTimer = Math.round((config.hitstop as number) / 16) + 1;
       defC.inHitstun = true;
-      defC.invincibilityTimer = Math.floor(PLAYER_CONFIG.INVINCIBILITY_DURATION / 16);
-      defC.knockbackTimer = Math.floor(PLAYER_CONFIG.KNOCKBACK_DURATION / 16);
+      defC.invincibilityTimer = Math.round(PLAYER_CONFIG.INVINCIBILITY_DURATION / 16);
+      defC.knockbackTimer = Math.round(PLAYER_CONFIG.KNOCKBACK_DURATION / 16);
 
-      atkC.hitstopTimer = Math.floor((config.hitstop as number) / 16);
+      atkC.hitstopTimer = Math.round((config.hitstop as number) / 16) + 1;
       atkC.combo++;
-      atkC.attackTimer = 0;
+
+      const frames = this.getAttackFrames(atkC.attackType);
+      atkC.attackTimer = frames ? frames.recovery : Math.round(config.recovery / 16);
       atkC.attackType = null;
 
       atkC.ultimate = Math.min(PLAYER_CONFIG.ULTIMATE_MAX, atkC.ultimate + PLAYER_CONFIG.ULTIMATE_PER_HIT);
