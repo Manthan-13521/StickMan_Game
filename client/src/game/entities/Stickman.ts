@@ -131,6 +131,15 @@ const STANCE_POSES: Record<PlayerStance, Pose> = {
     kneeL: { x: -8, y: 8, angle: 0.8 }, footL: { x: -10, y: 12, angle: 0 },
     kneeR: { x: 8, y: 8, angle: -0.8 }, footR: { x: 10, y: 12, angle: 0 },
   },
+  [PlayerStance.VICTORY]: {
+    head: { x: 0, y: -40 }, neck: { x: 0, y: -32 },
+    shoulder: { x: 0, y: -28 },
+    elbowL: { x: -8, y: -26, angle: -0.8 }, handL: { x: -12, y: -34, angle: 0 },
+    elbowR: { x: 8, y: -26, angle: 0.8 }, handR: { x: 14, y: -34, angle: 0 },
+    hip: { x: 0, y: -16 },
+    kneeL: { x: -6, y: -2, angle: 0.1 }, footL: { x: -8, y: 10, angle: 0 },
+    kneeR: { x: 6, y: -2, angle: -0.1 }, footR: { x: 8, y: 10, angle: 0 },
+  },
 };
 
 const WALK_CYCLE_AMP = 4;
@@ -146,14 +155,14 @@ export class Stickman {
 
   constructor(scene: Phaser.Scene) {
     this.graphics = scene.add.graphics();
-    this.currentPose = JSON.parse(JSON.stringify(STANCE_POSES[PlayerStance.IDLE]));
-    this.targetPose = JSON.parse(JSON.stringify(STANCE_POSES[PlayerStance.IDLE]));
+    this.currentPose = structuredClone(STANCE_POSES[PlayerStance.IDLE]);
+    this.targetPose = structuredClone(STANCE_POSES[PlayerStance.IDLE]);
   }
 
   setStance(stance: PlayerStance, instant = false): void {
     const pose = STANCE_POSES[stance];
     if (!pose) return;
-    this.targetPose = JSON.parse(JSON.stringify(pose));
+    this.targetPose = structuredClone(pose);
     this.poseTransition = instant ? 1 : 0;
   }
 

@@ -20,6 +20,7 @@ export function createCombatState(wins = 0): CombatState {
     invincibilityTimer: 0,
     ultimateArmorTimer: 0,
     comboResetTimer: 0,
+    knockdownTimer: 0,
     stance: PlayerStance.IDLE,
     alive: true,
     lastHitTime: 0,
@@ -180,7 +181,7 @@ export function applyHit(
   let damage: number = attackConfig.damage;
 
   if (attacker.combo > 0) {
-    damage = Math.floor(damage * Math.pow(COMBAT_CONFIG.COMBO_SCALING, attacker.combo));
+    damage = Math.max(1, Math.floor(damage * Math.pow(COMBAT_CONFIG.COMBO_SCALING, attacker.combo)));
   }
 
   const wasBlocking = defender.isBlocking;

@@ -14,6 +14,7 @@ export class ServerPlayer {
   input: PlayerInput | null = null;
   lastProcessedSeq: number = -1;
   wasHitDuringAttack: boolean = false;
+  getupTimer = 0;
 
   constructor(id: string, playerIndex: number, x: number, y: number, wins: number) {
     this.id = id;
@@ -129,11 +130,25 @@ export class ServerPlayer {
     updateCombatTimers(this.combat, TICK_MS);
 
     if (this.combat.hitstopTimer > 0) return;
-    if (this.combat.knockbackTimer > 0) return;
 
-    if (this.combat.stance === PlayerStance.GETTING_UP) {
-      this.combat.stance = PlayerStance.IDLE;
+    if (this.combat.knockdownTimer > 0) {
+      this.combat.knockdownTimer = Math.max(0, this.combat.knockdownTimer - TICK_MS);
+      if (this.combat.knockdownTimer <= 0) {
+        this.combat.stance = PlayerStance.GETTING_UP;
+        this.getupTimer = 400;
+      }
+      return;
     }
+
+    if (this.getupTimer > 0) {
+      this.getupTimer = Math.max(0, this.getupTimer - TICK_MS);
+      if (this.getupTimer <= 0) {
+        this.combat.stance = PlayerStance.IDLE;
+      }
+      return;
+    }
+
+    if (this.combat.knockbackTimer > 0) return;
 
     if (this.combat.stance === PlayerStance.HIT) {
       this.combat.stance = PlayerStance.IDLE;

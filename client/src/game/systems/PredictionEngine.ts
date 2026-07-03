@@ -20,7 +20,7 @@ export class PredictionEngine {
     updatePhysics(this.predictedState, dt, moveX, input.up, input.down, false);
 
     this.inputHistory.push({
-      input: JSON.parse(JSON.stringify(input)),
+      input: { ...input },
       state: { ...this.predictedState },
     });
     if (this.inputHistory.length > INPUT_BUFFER_SIZE) {

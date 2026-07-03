@@ -1,5 +1,6 @@
 import { Server, Socket } from 'socket.io';
-import { ClientEvent, ServerEvent, GamePhase, validateRoomCode, validatePlayerInput } from 'shared';
+import { ClientEvent, ServerEvent, GamePhase, validateRoomCode, validatePlayerInput, validateInputRate, MAX_ROOMS } from 'shared';
+import type { PlayerInput } from 'shared';
 import { GameRoom } from './GameRoom';
 
 function generateRoomCode(): string {
@@ -14,6 +15,7 @@ function generateRoomCode(): string {
 export class RoomManager {
   private rooms = new Map<string, GameRoom>();
   private socketRoomMap = new Map<string, string>();
+  private lastInputs = new Map<string, PlayerInput | null>();
   private io: Server;
 
   constructor(io: Server) {
@@ -35,6 +37,10 @@ export class RoomManager {
   }
 
   private handleCreateRoom(socket: Socket): void {
+    if (this.rooms.size >= MAX_ROOMS) {
+      socket.emit(ServerEvent.ERROR, { code: 'SERVER_FULL', message: 'Server is full, try again later' });
+      return;
+    }
     let code = generateRoomCode();
     while (this.rooms.has(code)) {
       code = generateRoomCode();
@@ -85,6 +91,9 @@ export class RoomManager {
     const room = this.rooms.get(code);
     if (!room) return;
     if (!validatePlayerInput(input)) return;
+    const lastInput = this.lastInputs.get(socket.id) ?? null;
+    if (!validateInputRate(lastInput, input)) return;
+    this.lastInputs.set(socket.id, input);
     room.handleInput(socket.id, input);
   }
 
@@ -104,6 +113,7 @@ export class RoomManager {
       room.handleDisconnect(socket.id);
     }
     this.socketRoomMap.delete(socket.id);
+    this.lastInputs.delete(socket.id);
     this.checkEmptyRoom(code);
   }
 

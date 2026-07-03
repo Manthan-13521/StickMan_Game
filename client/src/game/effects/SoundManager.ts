@@ -320,6 +320,16 @@ export class SoundManager {
     return source;
   }
 
+  setVolume(vol: number): void {
+    if (this.masterGain) {
+      this.masterGain.gain.value = vol;
+    }
+  }
+
+  getVolume(): number {
+    return this.masterGain?.gain.value ?? 0.5;
+  }
+
   destroy(): void {
     if (this.ctx) {
       this.ctx.close();

@@ -68,6 +68,7 @@ export default function HomePage() {
       setPlayerIndex(data.playerIndex);
       setView('game');
     };
+    const onGameStart = () => setView('game');
     const onGameState = (data: any) => setGameState(data);
     const onError = (data: { message: string }) => setError(data.message);
 
@@ -75,6 +76,7 @@ export default function HomePage() {
     networkClient.on('_disconnected', onDisconnect);
     networkClient.on(ServerEvent.ROOM_CREATED, onRoomCreated);
     networkClient.on(ServerEvent.PLAYER_JOINED, onPlayerJoined);
+    networkClient.on(ServerEvent.GAME_START, onGameStart);
     networkClient.on(ServerEvent.GAME_STATE, onGameState);
     networkClient.on(ServerEvent.ERROR, onError);
 
@@ -83,6 +85,7 @@ export default function HomePage() {
       networkClient.off('_disconnected', onDisconnect);
       networkClient.off(ServerEvent.ROOM_CREATED, onRoomCreated);
       networkClient.off(ServerEvent.PLAYER_JOINED, onPlayerJoined);
+      networkClient.off(ServerEvent.GAME_START, onGameStart);
       networkClient.off(ServerEvent.GAME_STATE, onGameState);
       networkClient.off(ServerEvent.ERROR, onError);
       networkClient.disconnect();

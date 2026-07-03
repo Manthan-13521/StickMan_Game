@@ -1,7 +1,7 @@
 import * as Phaser from 'phaser';
 import {
   PLAYER_CONFIG, COMBAT_CONFIG, ATTACK_CONFIG, GAME_CONFIG,
-  PlayerStance,
+  PlayerStance, GamePhase, getAttackConfig as sharedGetAttackConfig,
 } from '@/shared';
 import type { GameStateSnapshot, PlayerSnapshot } from '@/shared';
 import { Stickman } from '../entities/Stickman';
@@ -9,7 +9,8 @@ import { InputManager, type GameInput } from '../input/InputManager';
 import { createPhysicsState, updatePhysics, pushApart, type PhysicalState } from '../systems/LocalPhysics';
 import { CombatHUD } from '../ui/CombatHUD';
 import { CountdownOverlay } from '../ui/CountdownOverlay';
-import { WinScreen } from '../ui/WinScreen';
+import { WinScreen, type RoundStats } from '../ui/WinScreen';
+import { PauseOverlay } from '../ui/PauseOverlay';
 import { ParticleEffects } from '../effects/ParticleEffects';
 import { SoundManager, soundManager } from '../effects/SoundManager';
 import { DamageNumbers } from '../effects/DamageNumber';
@@ -22,6 +23,7 @@ interface CombatState {
   health: number;
   maxHealth: number;
   combo: number;
+  longestCombo: number;
   ultimate: number;
   ultimateReady: boolean;
   wins: number;
@@ -32,7 +34,12 @@ interface CombatState {
   inHitstun: boolean;
   invincibilityTimer: number;
   knockbackTimer: number;
+  knockdownTimer: number;
+  recoveryTimer: number;
+  comboResetTimer: number;
   alive: boolean;
+  damageDealt: number;
+  hitsLanded: number;
 }
 
 const P2_INPUT: GameInput = { left: false, right: false, up: false, down: false, punch: false, kick: false, block: false };
@@ -42,6 +49,7 @@ function createCombatState(wins = 0): CombatState {
     health: PLAYER_CONFIG.MAX_HEALTH,
     maxHealth: PLAYER_CONFIG.MAX_HEALTH,
     combo: 0,
+    longestCombo: 0,
     ultimate: 0,
     ultimateReady: false,
     wins,
@@ -52,7 +60,12 @@ function createCombatState(wins = 0): CombatState {
     inHitstun: false,
     invincibilityTimer: 0,
     knockbackTimer: 0,
+    knockdownTimer: 0,
+    recoveryTimer: 0,
+    comboResetTimer: 0,
     alive: true,
+    damageDealt: 0,
+    hitsLanded: 0,
   };
 }
 
@@ -61,6 +74,7 @@ function snapshotToCombatState(snap: PlayerSnapshot): CombatState {
     health: snap.health,
     maxHealth: snap.maxHealth,
     combo: snap.combo ?? 0,
+    longestCombo: Math.max(snap.combo ?? 0, 0),
     ultimate: snap.ultimate ?? 0,
     ultimateReady: snap.ultimateReady ?? false,
     wins: snap.wins ?? 0,
@@ -71,7 +85,12 @@ function snapshotToCombatState(snap: PlayerSnapshot): CombatState {
     inHitstun: false,
     invincibilityTimer: 0,
     knockbackTimer: 0,
+    knockdownTimer: 0,
+    recoveryTimer: 0,
+    comboResetTimer: 0,
     alive: snap.health > 0,
+    damageDealt: 0,
+    hitsLanded: 0,
   };
 }
 
@@ -87,9 +106,12 @@ export class GameScene extends Phaser.Scene {
   private hud: CombatHUD | null = null;
   private countdown: CountdownOverlay | null = null;
   private winScreen: WinScreen | null = null;
+  private pauseOverlay: PauseOverlay | null = null;
   private particles: ParticleEffects | null = null;
   private soundManager: SoundManager | null = null;
   private damageNumbers: DamageNumbers | null = null;
+  private _paused = false;
+  private hitstopFlash: Phaser.GameObjects.Rectangle | null = null;
 
   private predictionEngine: PredictionEngine | null = null;
   private interpEngine: InterpolationEngine | null = null;
@@ -98,12 +120,18 @@ export class GameScene extends Phaser.Scene {
   private inputSeq: number = 0;
   private localAttackOverride: { timer: number; type: string } | null = null;
   private localBlockOverride = false;
+  private networkStances: (PlayerStance | null)[] = [null, null];
 
   private round = 1;
   private roundTimer: number = GAME_CONFIG.ROUND_DURATION;
   private fighting = false;
-  private koTimer = 0;
   private roundOver = false;
+  private koElapsed = 0;
+  private koActive = false;
+  private koTextObj: Phaser.GameObjects.Text | null = null;
+  private koTextShown = false;
+  private koWinScreenShown = false;
+  private koFreezeDuration = 120;
 
   constructor() {
     super({ key: 'GameScene' });
@@ -128,16 +156,35 @@ export class GameScene extends Phaser.Scene {
     this.hud = new CombatHUD(this);
     this.countdown = new CountdownOverlay(this);
     this.winScreen = new WinScreen(this);
+    this.pauseOverlay = new PauseOverlay(this);
     this.particles = new ParticleEffects(this);
     this.soundManager = soundManager;
     this.damageNumbers = new DamageNumbers(this);
+
+    this.hitstopFlash = this.add.rectangle(
+      this.scale.width / 2, this.scale.height / 2,
+      this.scale.width, this.scale.height,
+      0xffffff, 0,
+    ).setDepth(350).setVisible(false);
 
     this.input.keyboard?.once('keydown', () => {
       this.soundManager?.init();
     });
 
     this.input.keyboard?.on('keydown-ESC', () => {
-      useGameStore.getState().exitToMenu();
+      if (this.roundOver || !this.fighting) {
+        useGameStore.getState().exitToMenu();
+        return;
+      }
+      if (this.pauseOverlay?.active) {
+        this._paused = false;
+        this.pauseOverlay.hide();
+      } else {
+        this._paused = true;
+        this.pauseOverlay?.show(() => {
+          this._paused = false;
+        });
+      }
     });
 
     if (!this.localMode) {
@@ -158,12 +205,17 @@ export class GameScene extends Phaser.Scene {
     this.round = 1;
     this.roundTimer = GAME_CONFIG.ROUND_DURATION;
     this.fighting = false;
-    this.koTimer = 0;
     this.roundOver = false;
+    this.koActive = false;
+    this.koElapsed = 0;
+    this.koTextShown = false;
+    this.koWinScreenShown = false;
 
-    this.countdown.start(() => {
-      this.fighting = true;
-    });
+    if (this.localMode) {
+      this.countdown.start(() => {
+        this.fighting = true;
+      });
+    }
   }
 
   update(_time: number, delta: number): void {
@@ -174,14 +226,18 @@ export class GameScene extends Phaser.Scene {
     this.countdown?.update(dt);
     this.damageNumbers?.update(dt);
 
-    if (!this.fighting) {
-      this.renderIdle();
+    if (this._paused) {
+      this.renderIdle(dt);
       return;
     }
 
-    if (this.koTimer > 0) {
-      this.koTimer -= 16;
-      this.renderIdle();
+    if (this.koActive) {
+      this.updateKOSequence(dt);
+      return;
+    }
+
+    if (!this.fighting) {
+      this.renderIdle(dt);
       return;
     }
 
@@ -228,6 +284,154 @@ export class GameScene extends Phaser.Scene {
     );
   }
 
+  private updateKOSequence(dt: number): void {
+    this.koElapsed += dt * 1000;
+
+    const loserIdx = this.combatStates[0].health <= 0 ? 0
+      : this.combatStates[1].health <= 0 ? 1 : -1;
+    const winnerIdx = loserIdx === 0 ? 1 : loserIdx === 1 ? 0 : -1;
+
+    for (let i = 0; i < 2; i++) {
+      const cs = this.combatStates[i];
+      if (cs.health <= 0 && !cs.alive) {
+        cs.invincibilityTimer = 9999;
+        this.stickmen[i].setStance(PlayerStance.DEAD, true);
+      }
+    }
+
+    if (this.koElapsed < this.koFreezeDuration) {
+      this.renderFighters(dt);
+      return;
+    }
+
+    if (winnerIdx >= 0 && this.koElapsed > this.koFreezeDuration + 200) {
+      this.stickmen[winnerIdx].setStance(PlayerStance.VICTORY, true);
+      if (this.physStates[winnerIdx] && this.physStates[loserIdx]) {
+        this.physStates[winnerIdx].facingRight =
+          this.physStates[winnerIdx].x < this.physStates[loserIdx].x;
+      }
+    }
+
+    for (let i = 0; i < 2; i++) {
+      const cs = this.combatStates[i];
+      if (cs.health <= 0) {
+        const phys = this.physStates[i];
+        updatePhysics(phys, dt, 0, false, false, true);
+      }
+    }
+
+    if (!this.koTextShown && this.koElapsed > this.koFreezeDuration + 400) {
+      this.koTextShown = true;
+      this.showKOText();
+    }
+
+    if (!this.koWinScreenShown && this.koElapsed > this.koFreezeDuration + 1200) {
+      this.koWinScreenShown = true;
+      this.showWinScreenAfterKO();
+    }
+
+    this.renderFighters(dt);
+  }
+
+  private showKOText(): void {
+    if (this.koTextObj) return;
+    this.koTextObj = this.add.text(
+      this.scale.width / 2, this.scale.height * 0.35,
+      'K.O.!',
+      {
+        fontFamily: 'monospace',
+        fontSize: '80px',
+        color: '#ff2222',
+        stroke: '#000000',
+        strokeThickness: 8,
+      },
+    ).setOrigin(0.5).setDepth(400).setScale(3).setAlpha(0);
+
+    this.cameras.main.shake(300, 0.01);
+
+    this.tweens.add({
+      targets: this.koTextObj,
+      scaleX: 1,
+      scaleY: 1,
+      alpha: 1,
+      duration: 400,
+      ease: 'Back.easeOut',
+      onComplete: () => {
+        this.tweens.add({
+          targets: this.koTextObj,
+          alpha: 0.8,
+          duration: 200,
+          yoyo: true,
+          repeat: 1,
+        });
+      },
+    });
+  }
+
+  private showWinScreenAfterKO(): void {
+    const winnerIndex = this.combatStates[0].wins > this.combatStates[1].wins ? 0
+      : this.combatStates[1].wins > this.combatStates[0].wins ? 1 : null;
+    const winnerName = winnerIndex === 0 ? 'P1' : winnerIndex === 1 ? 'P2' : '';
+    const totalWinsNeeded = Math.ceil(GAME_CONFIG.ROUNDS_TO_WIN);
+    const isMatchOver = winnerIndex !== null && this.combatStates[winnerIndex].wins >= totalWinsNeeded;
+
+    const stats: [RoundStats, RoundStats] = [
+      {
+        damageDealt: this.combatStates[0].damageDealt,
+        hitsLanded: this.combatStates[0].hitsLanded,
+        longestCombo: this.combatStates[0].longestCombo,
+      },
+      {
+        damageDealt: this.combatStates[1].damageDealt,
+        hitsLanded: this.combatStates[1].hitsLanded,
+        longestCombo: this.combatStates[1].longestCombo,
+      },
+    ];
+
+    if (isMatchOver) {
+      if (winnerIndex === 0) this.soundManager?.playVictory();
+      else if (winnerIndex === 1) this.soundManager?.playDefeat();
+      if (this.localMode) {
+        this.winScreen?.showMatchOver(winnerIndex, winnerName, undefined, stats);
+      } else {
+        this.winScreen?.showMatchOver(winnerIndex, winnerName, () => {
+          networkClient.requestRematch();
+        }, stats);
+      }
+    } else {
+      if (this.localMode) {
+        this.winScreen?.showKO(winnerIndex, winnerName, () => {
+          this.nextRound();
+        }, stats);
+      } else {
+        this.winScreen?.showKO(winnerIndex, winnerName, () => {
+          networkClient.requestRematch();
+        }, stats);
+      }
+    }
+  }
+
+  private nextRound(): void {
+    this.round++;
+    this.roundTimer = GAME_CONFIG.ROUND_DURATION;
+    this.resetPositions();
+    this.combatStates = [
+      createCombatState(this.combatStates[0].wins),
+      createCombatState(this.combatStates[1].wins),
+    ];
+    this.koActive = false;
+    this.koElapsed = 0;
+    this.koTextShown = false;
+    this.koWinScreenShown = false;
+    this.koTextObj?.destroy();
+    this.koTextObj = null;
+    this.roundOver = false;
+    this.countdown?.start(() => {
+      this.soundManager?.playFight();
+      this.fighting = true;
+    });
+  }
+
   private stateTimerTick(): void {
     for (let i = 0; i < 2; i++) {
       const cs = this.combatStates[i];
@@ -235,6 +439,14 @@ export class GameScene extends Phaser.Scene {
       if (cs.invincibilityTimer > 0) cs.invincibilityTimer--;
       if (cs.attackTimer > 0) cs.attackTimer--;
       if (cs.knockbackTimer > 0) cs.knockbackTimer--;
+      if (cs.knockdownTimer > 0) cs.knockdownTimer--;
+      if (cs.recoveryTimer > 0) cs.recoveryTimer--;
+      if (cs.comboResetTimer > 0) {
+        cs.comboResetTimer--;
+        if (cs.comboResetTimer <= 0) {
+          cs.combo = 0;
+        }
+      }
     }
 
     if (this.localAttackOverride) {
@@ -333,16 +545,48 @@ export class GameScene extends Phaser.Scene {
     const localSnap = snapshot.players[this.playerIndex];
     const remoteSnap = snapshot.players[1 - this.playerIndex];
 
-    if (localSnap.health === localSnap.maxHealth && remoteSnap.health === remoteSnap.maxHealth && this.roundOver) {
+    if (snapshot.roundTimer !== undefined) {
+      this.roundTimer = snapshot.roundTimer;
+    }
+
+    if (snapshot.phase === GamePhase.KO && !this.roundOver) {
+      for (let i = 0; i < snapshot.players.length && i < this.combatStates.length; i++) {
+        this.combatStates[i].health = snapshot.players[i].health;
+      }
+      const loserIdx = snapshot.winner ? (snapshot.players.findIndex(p => p.id !== snapshot.winner)) : null;
+      this.triggerKO(loserIdx);
+      return;
+    }
+
+    if (snapshot.phase === GamePhase.COUNTDOWN) {
+      this.winScreen?.hide();
       this.roundOver = false;
-      this.koTimer = 0;
-      this.fighting = true;
-      this.localAttackOverride = null;
       this.round = snapshot.round ?? this.round;
+      this.roundTimer = GAME_CONFIG.ROUND_DURATION;
+      this.countdown?.startServer(snapshot.countdown);
+      return;
+    }
+
+    if (snapshot.phase === GamePhase.FIGHTING && localSnap.health === localSnap.maxHealth && remoteSnap.health === remoteSnap.maxHealth) {
+      if (this.roundOver || !this.fighting) {
+        this.roundOver = false;
+        this.koActive = false;
+        this.koElapsed = 0;
+        this.koTextShown = false;
+        this.koWinScreenShown = false;
+        this.koTextObj?.destroy();
+        this.koTextObj = null;
+        this.fighting = true;
+        this.localAttackOverride = null;
+        this.round = snapshot.round ?? this.round;
+      }
     }
 
     const remoteCS = snapshotToCombatState(remoteSnap);
     this.combatStates[1 - this.playerIndex] = remoteCS;
+
+    this.networkStances[this.playerIndex] = localSnap.stance;
+    this.networkStances[1 - this.playerIndex] = remoteSnap.stance;
 
     const localCS = snapshotToCombatState(localSnap);
     if (this.localAttackOverride) {
@@ -367,14 +611,14 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
-  private renderIdle(): void {
+  private renderIdle(dt: number = GAME_CONFIG.TICK_DURATION / 1000): void {
     for (let i = 0; i < 2; i++) {
       const phys = this.physStates[i] ?? this.fallbackPhysics(i);
       const cs = this.combatStates[i];
       const stickman = this.stickmen[i];
 
       stickman.setStance(this.getVisualStance(i, phys, cs));
-      stickman.update(0.016);
+      stickman.update(dt);
 
       const color = i === 0 ? 0x6366f1 : 0xec4899;
       stickman.render(
@@ -408,6 +652,7 @@ export class GameScene extends Phaser.Scene {
           phys = createPhysicsState(interp.x, interp.y, interp.facingRight);
           phys.vx = interp.velocityX;
           phys.vy = interp.velocityY;
+          phys.grounded = interp.y >= PLAYER_CONFIG.STAGE_GROUND - PLAYER_CONFIG.HEIGHT;
         } else {
           phys = this.physStates[i] ?? this.fallbackPhysics(i);
         }
@@ -439,6 +684,44 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
+  private updateHitstun(index: number, phys: PhysicalState, cs: CombatState, dt: number): void {
+    if (cs.hitstopTimer <= 0 && !cs.inHitstun) return;
+    if (cs.health <= 0) return;
+
+    updatePhysics(phys, dt, 0, false, false, true);
+
+    if (cs.knockbackTimer > 0) return;
+
+    if (cs.knockdownTimer > 0) {
+      if (phys.grounded) {
+        cs.knockdownTimer--;
+        phys.vx *= 0.85;
+        if (cs.knockdownTimer <= 0) {
+          cs.recoveryTimer = Math.round(300 / 16);
+        }
+      }
+      return;
+    }
+
+    if (cs.recoveryTimer > 0) {
+      cs.recoveryTimer--;
+      if (cs.recoveryTimer <= 0) {
+        cs.inHitstun = false;
+        cs.knockbackTimer = 0;
+        cs.invincibilityTimer = 0;
+        phys.vx = 0;
+      }
+      return;
+    }
+
+    if (phys.grounded && cs.invincibilityTimer <= 0) {
+      if (cs.knockbackTimer <= 0 && cs.knockdownTimer <= 0 && cs.recoveryTimer <= 0) {
+        cs.inHitstun = false;
+        phys.vx = 0;
+      }
+    }
+  }
+
   private fallbackPhysics(index: number): PhysicalState {
     return createPhysicsState(
       index === 0 ? PLAYER_CONFIG.STAGE_LEFT + 200 : PLAYER_CONFIG.STAGE_RIGHT - 200,
@@ -454,40 +737,24 @@ export class GameScene extends Phaser.Scene {
     const c1 = this.combatStates[1];
     const p2Input = this.inputManager?.getP2Input() ?? P2_INPUT;
 
-    if (c0.health > 0) {
-      const inHitstun0 = c0.hitstopTimer > 0 || c0.inHitstun;
-      if (inHitstun0) {
-        updatePhysics(p0, dt, 0, false, false, true);
-        if (p0.grounded && c0.invincibilityTimer <= 0) {
-          c0.inHitstun = false;
-          p0.vx = 0;
-        }
-      } else {
-        let moveX1 = 0;
-        if (input.left) moveX1 -= 1;
-        if (input.right) moveX1 += 1;
-        c0.isBlocking = input.block && p0.grounded;
-        this.handleLocalAttack(0, input);
-        updatePhysics(p0, dt, moveX1, input.up, input.down, false);
-      }
+    this.updateHitstun(0, p0, c0, dt);
+    if (c0.health > 0 && !(c0.hitstopTimer > 0 || c0.inHitstun)) {
+      let moveX1 = 0;
+      if (input.left) moveX1 -= 1;
+      if (input.right) moveX1 += 1;
+      c0.isBlocking = input.block && p0.grounded;
+      this.handleLocalAttack(0, input);
+      updatePhysics(p0, dt, moveX1, input.up, input.down, false);
     }
 
-    if (c1.health > 0) {
-      const inHitstun1 = c1.hitstopTimer > 0 || c1.inHitstun;
-      if (inHitstun1) {
-        updatePhysics(p1, dt, 0, false, false, true);
-        if (p1.grounded && c1.invincibilityTimer <= 0) {
-          c1.inHitstun = false;
-          p1.vx = 0;
-        }
-      } else {
-        let moveX2 = 0;
-        if (p2Input.left) moveX2 -= 1;
-        if (p2Input.right) moveX2 += 1;
-        c1.isBlocking = p2Input.block && p1.grounded;
-        this.handleLocalAttack(1, p2Input);
-        updatePhysics(p1, dt, moveX2, p2Input.up, p2Input.down, false);
-      }
+    this.updateHitstun(1, p1, c1, dt);
+    if (c1.health > 0 && !(c1.hitstopTimer > 0 || c1.inHitstun)) {
+      let moveX2 = 0;
+      if (p2Input.left) moveX2 -= 1;
+      if (p2Input.right) moveX2 += 1;
+      c1.isBlocking = p2Input.block && p1.grounded;
+      this.handleLocalAttack(1, p2Input);
+      updatePhysics(p1, dt, moveX2, p2Input.up, p2Input.down, false);
     }
 
     pushApart(p0, p1);
@@ -565,6 +832,9 @@ export class GameScene extends Phaser.Scene {
       if (!atkC.attackType || atkC.attackTimer <= 0) continue;
       if (defC.health <= 0) continue;
       if (!this.isAttackInActiveWindow(atkC)) continue;
+      if (defC.invincibilityTimer > 0) continue;
+
+      this.triggerHitstopFlash();
 
       const config = this.getAttackConfig(atkC.attackType);
       if (!config) continue;
@@ -581,7 +851,7 @@ export class GameScene extends Phaser.Scene {
       let damage: number = config.damage;
 
       if (atkC.combo > 0) {
-        damage = Math.floor(damage * Math.pow(COMBAT_CONFIG.COMBO_SCALING, atkC.combo));
+        damage = Math.max(1, Math.floor(damage * Math.pow(COMBAT_CONFIG.COMBO_SCALING, atkC.combo)));
       }
 
       const wasBlocking = defC.isBlocking;
@@ -595,11 +865,28 @@ export class GameScene extends Phaser.Scene {
       def.vx = knockDir * config.knockback;
       defC.hitstopTimer = Math.round((config.hitstop as number) / 16) + 1;
       defC.inHitstun = true;
-      defC.invincibilityTimer = Math.round(PLAYER_CONFIG.INVINCIBILITY_DURATION / 16);
+      if (defC.invincibilityTimer <= 0) {
+        defC.invincibilityTimer = Math.round(PLAYER_CONFIG.INVINCIBILITY_DURATION / 16);
+      }
       defC.knockbackTimer = Math.round(PLAYER_CONFIG.KNOCKBACK_DURATION / 16);
+
+      if (hitAttackType === 'kick') {
+        defC.knockdownTimer = Math.round(400 / 16);
+      } else if (hitAttackType === 'heavy') {
+        defC.knockdownTimer = Math.round(600 / 16);
+      } else if (hitAttackType === 'ultimate') {
+        defC.knockdownTimer = Math.round(800 / 16);
+      } else {
+        defC.knockdownTimer = 0;
+      }
+      defC.recoveryTimer = 0;
 
       atkC.hitstopTimer = Math.round((config.hitstop as number) / 16) + 1;
       atkC.combo++;
+      atkC.longestCombo = Math.max(atkC.longestCombo, atkC.combo);
+      atkC.comboResetTimer = Math.round(COMBAT_CONFIG.COMBO_TIMER_MS / 16);
+      atkC.damageDealt += actualDamage;
+      atkC.hitsLanded++;
 
       const frames = this.getAttackFrames(atkC.attackType);
       atkC.attackTimer = frames ? frames.recovery : Math.round(config.recovery / 16);
@@ -627,6 +914,16 @@ export class GameScene extends Phaser.Scene {
         this.damageNumbers?.show(hitX, hitY - 20, actualDamage, false, config.damage >= 200);
         this.damageNumbers?.showCombo(hitX, hitY, atkC.combo);
       }
+
+      if (defC.health <= 0) {
+        this.cameras.main.shake(400, 0.015);
+        for (let j = 0; j < 3; j++) {
+          this.particles?.hitSpark(
+            hitX + (Math.random() - 0.5) * 40,
+            hitY + (Math.random() - 0.5) * 40,
+          );
+        }
+      }
     }
   }
 
@@ -641,71 +938,80 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
+  private triggerHitstopFlash(): void {
+    if (!this.hitstopFlash) return;
+    this.hitstopFlash.setVisible(true).setAlpha(0.25);
+    this.tweens.add({
+      targets: this.hitstopFlash,
+      alpha: 0,
+      duration: 80,
+      onComplete: () => this.hitstopFlash?.setVisible(false),
+    });
+  }
+
   private triggerKO(loserIndex: number | null): void {
     if (this.roundOver) return;
     this.roundOver = true;
     this.fighting = false;
-    this.koTimer = 2000;
+    this.koActive = true;
+    this.koElapsed = 0;
+    this.koTextShown = false;
+    this.koWinScreenShown = false;
 
-    this.soundManager?.playKO();
+    let winnerIndex: number | null;
 
-    let winnerIndex: number | null = null;
     if (loserIndex !== null) {
       winnerIndex = loserIndex === 0 ? 1 : 0;
+    } else {
+      const h0 = this.combatStates[0].health;
+      const h1 = this.combatStates[1].health;
+      if (h0 > h1) winnerIndex = 0;
+      else if (h1 > h0) winnerIndex = 1;
+      else winnerIndex = null;
     }
 
     if (winnerIndex !== null) {
       this.combatStates[winnerIndex].wins++;
     }
 
-    const totalWinsNeeded = Math.ceil(GAME_CONFIG.ROUNDS_TO_WIN);
-
-    const winner = winnerIndex !== null ? this.combatStates[winnerIndex] : null;
-    const isMatchOver = winner !== null && winner.wins >= totalWinsNeeded;
-
-    const winnerName = winnerIndex === 0 ? 'P1' : 'P2';
-
-    this.time.delayedCall(600, () => {
-      if (isMatchOver) {
-        if (winnerIndex === 0) {
-          this.soundManager?.playVictory();
-        } else {
-          this.soundManager?.playDefeat();
-        }
-        this.winScreen?.showMatchOver(winnerIndex, winnerName);
-      } else {
-        this.winScreen?.showKO(winnerIndex, winnerName, () => {
-          this.round++;
-          this.roundTimer = GAME_CONFIG.ROUND_DURATION;
-          this.resetPositions();
-          this.combatStates = [
-            createCombatState(this.combatStates[0].wins),
-            createCombatState(this.combatStates[1].wins),
-          ];
-          this.koTimer = 0;
-          this.roundOver = false;
-          this.countdown?.start(() => {
-            this.soundManager?.playFight();
-            this.fighting = true;
-          });
-        });
+    for (let i = 0; i < 2; i++) {
+      const cs = this.combatStates[i];
+      if (cs.health <= 0 && cs.alive) {
+        cs.alive = false;
       }
-    });
-  }
+    }
 
-  private getAttackConfig(type: string | null) {
-    switch (type) {
-      case 'punch': return ATTACK_CONFIG.PUNCH;
-      case 'kick': return ATTACK_CONFIG.KICK;
-      case 'heavy': return ATTACK_CONFIG.HEAVY;
-      case 'ultimate': return ATTACK_CONFIG.ULTIMATE;
-      default: return null;
+    this.soundManager?.playKO();
+    this.cameras.main.shake(200, 0.008);
+
+    if (this.particles) {
+      const loserIdx = loserIndex ?? -1;
+      if (loserIdx >= 0) {
+        const p = this.physStates[loserIdx];
+        this.particles.hitSpark(
+          p.x + PLAYER_CONFIG.WIDTH / 2,
+          p.y + PLAYER_CONFIG.HEIGHT / 2,
+        );
+      }
     }
   }
 
+  private getAttackConfig(type: string | null) {
+    return sharedGetAttackConfig(type);
+  }
+
   private getVisualStance(index: number, phys: PhysicalState, cs: CombatState): PlayerStance {
+    if (!this.localMode && this.networkStances[index] !== null) {
+      return this.networkStances[index]!;
+    }
+    if (this.koActive && cs.health > 0) return PlayerStance.VICTORY;
     if (cs.health <= 0) return PlayerStance.DEAD;
-    if (cs.inHitstun) return PlayerStance.HIT;
+    if (cs.recoveryTimer > 0) return PlayerStance.GETTING_UP;
+    if (cs.knockdownTimer > 0 && phys.grounded && cs.knockbackTimer <= 0) return PlayerStance.KNOCKED_DOWN;
+    if (cs.inHitstun) {
+      if (cs.knockbackTimer > 0 && !phys.grounded) return PlayerStance.FALLING;
+      return PlayerStance.HIT;
+    }
     if (cs.attackTimer > 0 && cs.attackType) {
       return cs.attackType === 'kick' ? PlayerStance.KICKING : PlayerStance.PUNCHING;
     }
@@ -764,8 +1070,10 @@ export class GameScene extends Phaser.Scene {
     this.hud?.destroy();
     this.countdown?.destroy();
     this.winScreen?.destroy();
+    this.pauseOverlay?.destroy();
     this.particles?.destroy();
     this.damageNumbers?.destroy();
+    this.hitstopFlash?.destroy();
     this.predictionEngine = null;
     this.interpEngine = null;
   }

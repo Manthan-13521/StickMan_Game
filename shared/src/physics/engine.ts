@@ -33,6 +33,7 @@ export function updatePhysics(
     applyGravity(state, dt);
     integrate(state, dt);
     applyBounds(state);
+    checkGround(state);
     return;
   }
 

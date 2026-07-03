@@ -12,9 +12,9 @@ export class GameEngine {
   private round: number = 1;
   private tickCount: number = 0;
   private state: GamePhase = GamePhase.FIGHTING;
+  private roundTimer: number = GAME_CONFIG.ROUND_DURATION;
   private winner: string | null = null;
   private result: MatchResult | null = null;
-  private roundStartDelay: number = 0;
   private disconnectedId: string | null = null;
 
   constructor(playerWins: [number, number]) {
@@ -71,9 +71,32 @@ export class GameEngine {
         this.winner = this.players.find(p => p.health > 0)?.id || 'draw';
         const winnerIndex = this.players.findIndex(p => p.id === this.winner);
         this.result = winnerIndex === 0 ? MatchResult.PLAYER1_WIN : winnerIndex === 1 ? MatchResult.PLAYER2_WIN : MatchResult.DRAW;
-        break;
+        return;
       }
     }
+
+    this.roundTimer -= GAME_CONFIG.TICK_DURATION / 1000;
+    if (this.roundTimer <= 0) {
+      this.roundTimer = 0;
+      this.state = GamePhase.KO;
+      const p0 = this.players[0];
+      const p1 = this.players[1];
+      if (p0.health > p1.health) {
+        this.winner = p0.id;
+        this.result = MatchResult.PLAYER1_WIN;
+      } else if (p1.health > p0.health) {
+        this.winner = p1.id;
+        this.result = MatchResult.PLAYER2_WIN;
+      } else {
+        this.winner = null;
+        this.result = MatchResult.DRAW;
+      }
+    }
+  }
+
+  getPlayerId(index: number): string {
+    if (!this.players) return '';
+    return this.players[index]?.id ?? '';
   }
 
   getState(): GameStateSnapshot {
@@ -122,6 +145,7 @@ export class GameEngine {
       ],
       round: this.round,
       maxRounds: GAME_CONFIG.ROUNDS_TO_WIN,
+      roundTimer: this.roundTimer,
       winner: this.winner,
       result: this.result,
       tick: this.tickCount,
@@ -140,6 +164,7 @@ export class GameEngine {
       ],
       round: 1,
       maxRounds: GAME_CONFIG.ROUNDS_TO_WIN,
+      roundTimer: GAME_CONFIG.ROUND_DURATION,
       winner: null,
       result: null,
       tick: 0,

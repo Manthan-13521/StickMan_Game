@@ -11,6 +11,7 @@ export enum PlayerStance {
   KNOCKED_DOWN = 'knocked_down',
   GETTING_UP = 'getting_up',
   DEAD = 'dead',
+  VICTORY = 'victory',
 }
 
 export enum GamePhase {
@@ -64,6 +65,7 @@ export interface GameStateSnapshot {
   players: [PlayerSnapshot, PlayerSnapshot];
   round: number;
   maxRounds: number;
+  roundTimer: number;
   winner: string | null;
   result: MatchResult | null;
   tick: number;

@@ -10,7 +10,7 @@ const KEY_MAP: Record<string, string> = {
   'btn-punch': 'KeyJ',
   'btn-kick': 'KeyK',
   'btn-block': 'KeyL',
-  'btn-rematch': 'Space',
+  'btn-rematch': 'Enter',
   'btn-ultimate': 'KeyJ',
 };
 

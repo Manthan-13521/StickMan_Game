@@ -30,6 +30,7 @@ export interface CombatState {
   invincibilityTimer: number;
   ultimateArmorTimer: number;
   comboResetTimer: number;
+  knockdownTimer: number;
   stance: PlayerStance;
   alive: boolean;
   lastHitTime: number;

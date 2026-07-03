@@ -1,4 +1,4 @@
-import { PLAYER_CONFIG } from 'shared';
+import { PLAYER_CONFIG, GAME_CONFIG } from 'shared';
 import type { AttackConfig } from 'shared';
 import { checkHit, applyHit, getAttackConfig, getAttackPhase } from 'shared';
 import { ServerPlayer } from './Player';
@@ -33,13 +33,22 @@ export class CombatSystem {
       const direction = attacker.facingRight ? 1 : -1;
       const result = applyHit(attacker.combat, defender.combat, config as AttackConfig, direction);
 
+      const atkType = attacker.attackType;
+      if (atkType === 'kick') {
+        defender.combat.knockdownTimer = 400;
+      } else if (atkType === 'heavy') {
+        defender.combat.knockdownTimer = 600;
+      } else if (atkType === 'ultimate') {
+        defender.combat.knockdownTimer = 800;
+      }
+
       const knockbackX = direction * config.knockback * (result.wasBlocking ? 0.3 : 1);
       const knockbackY = config.knockbackY * (result.wasBlocking ? 0.3 : 1);
 
       defender.velocityX = knockbackX;
       defender.velocityY = knockbackY;
-      defender.x += knockbackX * 0.016;
-      defender.y += knockbackY * 0.016;
+      defender.x += knockbackX * (GAME_CONFIG.TICK_DURATION / 1000);
+      defender.y += knockbackY * (GAME_CONFIG.TICK_DURATION / 1000);
 
       if (defender.combat.health > 0 && !defender.combat.isGrounded && config.groundBounce) {
         defender.velocityY = -400;

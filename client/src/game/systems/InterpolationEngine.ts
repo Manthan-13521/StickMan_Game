@@ -6,7 +6,7 @@ export class InterpolationEngine {
   private renderState: PlayerSnapshot | null = null;
 
   pushState(state: PlayerSnapshot): void {
-    this.stateBuffer.push(JSON.parse(JSON.stringify(state)));
+    this.stateBuffer.push({ ...state });
     if (this.stateBuffer.length > STATE_BUFFER_SIZE) {
       this.stateBuffer.shift();
     }

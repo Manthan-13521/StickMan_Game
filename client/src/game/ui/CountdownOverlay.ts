@@ -49,6 +49,22 @@ export class CountdownOverlay {
     });
   }
 
+  startServer(count: number): void {
+    this._active = false;
+    this.container.setVisible(true);
+    const label = count > 0 ? String(count) : 'FIGHT!';
+    this.text.setText(label);
+    this.text.setScale(2).setAlpha(0);
+    this.scene.tweens.add({
+      targets: this.text,
+      scaleX: 1,
+      scaleY: 1,
+      alpha: 1,
+      duration: 250,
+      ease: 'Back.easeOut',
+    });
+  }
+
   update(dt: number): void {
     if (!this._active) return;
 

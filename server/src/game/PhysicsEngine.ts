@@ -1,9 +1,9 @@
-import { PLAYER_CONFIG, COMBAT_CONFIG } from 'shared';
+import { PLAYER_CONFIG, COMBAT_CONFIG, GAME_CONFIG } from 'shared';
 import { ServerPlayer } from './Player';
 
 export class PhysicsEngine {
   update(players: [ServerPlayer, ServerPlayer]): void {
-    const dt = 0.016;
+    const dt = GAME_CONFIG.TICK_DURATION / 1000;
 
     for (const player of players) {
       if (player.combat.health <= 0) continue;
@@ -42,6 +42,11 @@ export class PhysicsEngine {
     if (player.y < PLAYER_CONFIG.STAGE_CEILING) {
       player.y = PLAYER_CONFIG.STAGE_CEILING;
       player.velocityY = 0;
+    }
+    if (player.y + PLAYER_CONFIG.HEIGHT > PLAYER_CONFIG.STAGE_GROUND) {
+      player.y = PLAYER_CONFIG.STAGE_GROUND - PLAYER_CONFIG.HEIGHT;
+      player.velocityY = 0;
+      player.combat.isGrounded = true;
     }
   }
 

@@ -11,6 +11,8 @@ export class GameRoom {
   private sockets: Map<string, Socket> = new Map();
   private engine: GameEngine | null = null;
   private tickInterval: ReturnType<typeof setInterval> | null = null;
+  private countdownInterval: ReturnType<typeof setInterval> | null = null;
+  private koTimeout: ReturnType<typeof setTimeout> | null = null;
   private phase: GamePhase = GamePhase.WAITING;
   private rematchRequests = new Set<string>();
   private playerWins: [number, number] = [0, 0];
@@ -58,22 +60,37 @@ export class GameRoom {
   }
 
   handleDisconnect(socketId: string): void {
+    const playerIndex = this.players.get(socketId);
     this.removePlayer(socketId);
-    if (this.engine) {
-      this.engine.handleDisconnect(socketId);
+    if (this.engine && playerIndex !== undefined) {
+      this.engine.handleDisconnect(this.engine.getPlayerId(playerIndex));
     }
     this.broadcastGameState();
   }
 
   private startCountdown(): void {
+    if (this.countdownInterval) {
+      clearInterval(this.countdownInterval);
+      this.countdownInterval = null;
+    }
+
     this.phase = GamePhase.COUNTDOWN;
     let count = GAME_CONFIG.COUNTDOWN_SECONDS;
     this.io.to(this.code).emit(ServerEvent.GAME_START, { countdown: count });
 
-    const countInterval = setInterval(() => {
+    this.countdownInterval = setInterval(() => {
+      if (this.players.size < 2) {
+        this.clearIntervals();
+        this.phase = GamePhase.WAITING;
+        return;
+      }
+
       count--;
       if (count <= 0) {
-        clearInterval(countInterval);
+        if (this.countdownInterval) {
+          clearInterval(this.countdownInterval);
+          this.countdownInterval = null;
+        }
         this.startFight();
         return;
       }
@@ -86,6 +103,7 @@ export class GameRoom {
         ],
         round: 1,
         maxRounds: GAME_CONFIG.ROUNDS_TO_WIN,
+        roundTimer: GAME_CONFIG.ROUND_DURATION,
         winner: null,
         result: null,
         tick: 0,
@@ -132,7 +150,8 @@ export class GameRoom {
       this.phase = GamePhase.FINISHED;
     } else {
       this.phase = GamePhase.KO;
-      setTimeout(() => {
+      this.koTimeout = setTimeout(() => {
+        this.koTimeout = null;
         this.rematchRequests.clear();
         this.startCountdown();
       }, GAME_CONFIG.KO_DELAY);
@@ -140,6 +159,10 @@ export class GameRoom {
   }
 
   private startRematch(): void {
+    if (this.koTimeout) {
+      clearTimeout(this.koTimeout);
+      this.koTimeout = null;
+    }
     this.rematchRequests.clear();
     this.playerWins = [0, 0];
     this.engine = null;
@@ -174,6 +197,7 @@ export class GameRoom {
         ],
         round: 1,
         maxRounds: GAME_CONFIG.ROUNDS_TO_WIN,
+        roundTimer: GAME_CONFIG.ROUND_DURATION,
         winner: null,
         result: null,
         tick: 0,
@@ -185,10 +209,23 @@ export class GameRoom {
     this.io.to(this.code).emit(ServerEvent.GAME_STATE, state);
   }
 
-  destroy(): void {
+  private clearIntervals(): void {
     if (this.tickInterval) {
       clearInterval(this.tickInterval);
+      this.tickInterval = null;
     }
+    if (this.countdownInterval) {
+      clearInterval(this.countdownInterval);
+      this.countdownInterval = null;
+    }
+    if (this.koTimeout) {
+      clearTimeout(this.koTimeout);
+      this.koTimeout = null;
+    }
+  }
+
+  destroy(): void {
+    this.clearIntervals();
     this.players.clear();
     this.sockets.clear();
     this.engine = null;
