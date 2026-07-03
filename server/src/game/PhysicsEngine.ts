@@ -1,30 +1,32 @@
 import { PLAYER_CONFIG, COMBAT_CONFIG } from 'shared';
+import { createPhysicalState } from 'shared';
+import { updatePhysics as sharedUpdatePhysics, pushApart as sharedPushApart } from 'shared';
 import { ServerPlayer } from './Player';
 
 export class PhysicsEngine {
   update(players: [ServerPlayer, ServerPlayer]): void {
-    const dt = 1;
+    const dt = 0.016;
 
     for (const player of players) {
-      if (player.health <= 0) continue;
+      if (player.combat.health <= 0) continue;
 
       if (player.knockbackTimer > 0 || player.hitstopTimer > 0) {
-        player.x += player.velocityX * dt * 0.016;
-        player.y += player.velocityY * dt * 0.016;
+        player.x += player.velocityX * dt;
+        player.y += player.velocityY * dt;
         this.applyBounds(player);
         continue;
       }
 
-      if (!player.isGrounded) {
+      if (!player.combat.isGrounded) {
         let gravityMult = 1;
-        if (player.knockbackTimer > 0 && !player.isGrounded) {
+        if (player.knockbackTimer > 0) {
           gravityMult = COMBAT_CONFIG.JUGGLE_GRAVITY_MULTIPLIER;
         }
-        player.velocityY += PLAYER_CONFIG.GRAVITY * gravityMult * dt * 0.016;
+        player.velocityY += PLAYER_CONFIG.GRAVITY * gravityMult * dt;
       }
 
-      player.x += player.velocityX * dt * 0.016;
-      player.y += player.velocityY * dt * 0.016;
+      player.x += player.velocityX * dt;
+      player.y += player.velocityY * dt;
 
       this.applyBounds(player);
       this.checkGround(player);
@@ -52,9 +54,9 @@ export class PhysicsEngine {
     if (player.y + PLAYER_CONFIG.HEIGHT >= PLAYER_CONFIG.STAGE_GROUND) {
       player.y = PLAYER_CONFIG.STAGE_GROUND - PLAYER_CONFIG.HEIGHT;
       player.velocityY = 0;
-      player.isGrounded = true;
+      player.combat.isGrounded = true;
     } else {
-      player.isGrounded = false;
+      player.combat.isGrounded = false;
     }
   }
 

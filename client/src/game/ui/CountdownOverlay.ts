@@ -1,4 +1,5 @@
 import * as Phaser from 'phaser';
+import { soundManager } from '../effects/SoundManager';
 
 export class CountdownOverlay {
   private scene: Phaser.Scene;
@@ -61,6 +62,12 @@ export class CountdownOverlay {
         this.container.setVisible(false);
         this.callback?.();
         return;
+      }
+
+      if (this.stepIndex === this.steps.length - 1) {
+        soundManager.playCountdownFinal();
+      } else {
+        soundManager.playCountdownBeep();
       }
 
       this.text.setText(this.steps[this.stepIndex]);

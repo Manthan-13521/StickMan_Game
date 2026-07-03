@@ -1,4 +1,6 @@
-import { ATTACK_CONFIG, PLAYER_CONFIG, COMBAT_CONFIG } from 'shared';
+import { PLAYER_CONFIG } from 'shared';
+import type { AttackConfig } from 'shared';
+import { checkHit, applyHit, getAttackConfig, getAttackPhase } from 'shared';
 import { ServerPlayer } from './Player';
 
 export class CombatSystem {
@@ -11,75 +13,40 @@ export class CombatSystem {
       const attacker = players[i];
       const defender = players[1 - i];
 
-      if (!attacker.attackType || attacker.attackTimer === undefined) continue;
-
-      const config = attacker.getAttackConfig(attacker.attackType);
+      const config = getAttackConfig(attacker.attackType);
       if (!config) continue;
 
-      const totalFrames = config.startup + config.active + config.recovery;
-      const framesElapsed = totalFrames - attacker.attackTimer;
-      const inActiveWindow = framesElapsed >= config.startup && framesElapsed < config.startup + config.active;
-
-      if (!inActiveWindow) continue;
+      const phase = getAttackPhase(attacker.combat);
+      if (phase !== 'active') continue;
 
       if (this.hitThisTick.has(defender.id)) continue;
 
-      const attackerHitbox = this.getHitbox(attacker, config.range);
-      const defenderHitbox = this.getDefenderHitbox(defender);
+      const atkX = attacker.facingRight ? attacker.x + PLAYER_CONFIG.WIDTH : attacker.x;
+      const defX = defender.x;
+      const dist = Math.abs(atkX - defX);
+      const yDist = attacker.y - defender.y;
 
-      if (!this.overlaps(attackerHitbox, defenderHitbox)) continue;
+      if (!checkHit(attacker.combat, defender.combat, config as AttackConfig, dist, yDist)) continue;
 
       this.hitThisTick.add(defender.id);
 
-      const knockbackX = attacker.facingRight ? config.knockback : -config.knockback;
-      const knockbackY = config.knockbackY;
-      let damage: number = config.damage;
-      const isJuggle = !defender.isGrounded;
+      const direction = attacker.facingRight ? 1 : -1;
+      const result = applyHit(attacker.combat, defender.combat, config as AttackConfig, direction);
 
-      if (attacker.combo > 0) {
-        damage = Math.floor(damage * Math.pow(COMBAT_CONFIG.COMBO_SCALING, attacker.combo));
+      const knockbackX = direction * config.knockback * (result.wasBlocking ? 0.3 : 1);
+      const knockbackY = config.knockbackY * (result.wasBlocking ? 0.3 : 1);
+
+      defender.velocityX = knockbackX;
+      defender.velocityY = knockbackY;
+      defender.x += knockbackX * 0.016;
+      defender.y += knockbackY * 0.016;
+
+      if (defender.combat.health > 0 && !defender.combat.isGrounded && config.groundBounce) {
+        defender.velocityY = -400;
+        defender.combat.knockbackTimer = PLAYER_CONFIG.KNOCKBACK_DURATION;
       }
-
-      const hitStop = defender.isBlocking ? Math.floor(config.hitstop * 0.5) : config.hitstop;
-
-      defender.takeDamage(damage, knockbackX, knockbackY, hitStop, isJuggle);
-
-      if (defender.health > 0 && !defender.isGrounded && config.groundBounce) {
-        defender.applyGroundBounce();
-      }
-
-      attacker.startCombo();
-      attacker.addUltimate(PLAYER_CONFIG.ULTIMATE_PER_HIT);
-      defender.addUltimate(PLAYER_CONFIG.ULTIMATE_PER_TAKE_HIT);
 
       attacker.wasHitDuringAttack = false;
-
-      if (attacker.hitstopTimer < hitStop) {
-        attacker.hitstopTimer = hitStop;
-      }
     }
-  }
-
-  private getDefenderHitbox(player: ServerPlayer): { x: number; y: number; w: number; h: number } {
-    return {
-      x: player.x,
-      y: player.y,
-      w: PLAYER_CONFIG.WIDTH,
-      h: PLAYER_CONFIG.HEIGHT,
-    };
-  }
-
-  private getHitbox(player: ServerPlayer, range: number): { x: number; y: number; w: number; h: number } {
-    const originX = player.facingRight ? player.x + PLAYER_CONFIG.WIDTH : player.x;
-    return {
-      x: player.facingRight ? originX : originX - range,
-      y: player.y,
-      w: range,
-      h: PLAYER_CONFIG.HEIGHT,
-    };
-  }
-
-  private overlaps(a: { x: number; y: number; w: number; h: number }, b: { x: number; y: number; w: number; h: number }): boolean {
-    return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
   }
 }

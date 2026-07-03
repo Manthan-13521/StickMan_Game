@@ -11,6 +11,8 @@ import { CombatHUD } from '../ui/CombatHUD';
 import { CountdownOverlay } from '../ui/CountdownOverlay';
 import { WinScreen } from '../ui/WinScreen';
 import { ParticleEffects } from '../effects/ParticleEffects';
+import { SoundManager, soundManager } from '../effects/SoundManager';
+import { DamageNumbers } from '../effects/DamageNumber';
 
 interface CombatState {
   health: number;
@@ -63,6 +65,8 @@ export class GameScene extends Phaser.Scene {
   private countdown: CountdownOverlay | null = null;
   private winScreen: WinScreen | null = null;
   private particles: ParticleEffects | null = null;
+  private soundManager: SoundManager | null = null;
+  private damageNumbers: DamageNumbers | null = null;
 
   private round = 1;
   private roundTimer: number = GAME_CONFIG.ROUND_DURATION;
@@ -87,6 +91,12 @@ export class GameScene extends Phaser.Scene {
     this.countdown = new CountdownOverlay(this);
     this.winScreen = new WinScreen(this);
     this.particles = new ParticleEffects(this);
+    this.soundManager = soundManager;
+    this.damageNumbers = new DamageNumbers(this);
+
+    this.input.keyboard?.once('keydown', () => {
+      this.soundManager?.init();
+    });
 
     this.round = 1;
     this.roundTimer = GAME_CONFIG.ROUND_DURATION;
@@ -105,6 +115,7 @@ export class GameScene extends Phaser.Scene {
     if (this.stickmen.length < 2 || this.combatStates.length < 2) return;
 
     this.countdown?.update(dt);
+    this.damageNumbers?.update(dt);
 
     if (!this.fighting) {
       this.renderIdle();
@@ -348,6 +359,7 @@ export class GameScene extends Phaser.Scene {
       if (dist >= config.range) continue;
       if (Math.abs(atk.y - def.y) > PLAYER_CONFIG.HEIGHT * 1.5) continue;
 
+      const hitAttackType = atkC.attackType || 'punch';
       const knockDir = atk.facingRight ? 1 : -1;
       let damage: number = config.damage;
 
@@ -360,6 +372,7 @@ export class GameScene extends Phaser.Scene {
         damage = Math.floor(damage * PLAYER_CONFIG.BLOCK_DAMAGE_MULTIPLIER);
       }
 
+      const actualDamage = Math.min(defC.health, damage);
       defC.health = Math.max(0, defC.health - damage);
       def.vy = config.knockbackY;
       def.vx = knockDir * config.knockback;
@@ -386,10 +399,16 @@ export class GameScene extends Phaser.Scene {
 
       const hitX = def.x + PLAYER_CONFIG.WIDTH / 2;
       const hitY = def.y + PLAYER_CONFIG.HEIGHT / 2;
+
+      this.soundManager?.playHit(hitAttackType as 'punch' | 'kick' | 'heavy' | 'ultimate', wasBlocking);
+
       if (wasBlocking) {
         this.particles?.blockSpark(hitX, hitY);
+        this.damageNumbers?.show(hitX, hitY - 20, actualDamage, true);
       } else {
         this.particles?.hitSpark(hitX, hitY);
+        this.damageNumbers?.show(hitX, hitY - 20, actualDamage, false, config.damage >= 200);
+        this.damageNumbers?.showCombo(hitX, hitY, atkC.combo);
       }
     }
   }
@@ -411,6 +430,8 @@ export class GameScene extends Phaser.Scene {
     this.fighting = false;
     this.koTimer = 2000;
 
+    this.soundManager?.playKO();
+
     let winnerIndex: number | null = null;
     if (loserIndex !== null) {
       winnerIndex = loserIndex === 0 ? 1 : 0;
@@ -429,6 +450,11 @@ export class GameScene extends Phaser.Scene {
 
     this.time.delayedCall(600, () => {
       if (isMatchOver) {
+        if (winnerIndex === 0) {
+          this.soundManager?.playVictory();
+        } else {
+          this.soundManager?.playDefeat();
+        }
         this.winScreen?.showMatchOver(winnerIndex, winnerName);
       } else {
         this.winScreen?.showKO(winnerIndex, winnerName, () => {
@@ -442,6 +468,7 @@ export class GameScene extends Phaser.Scene {
           this.koTimer = 0;
           this.roundOver = false;
           this.countdown?.start(() => {
+            this.soundManager?.playFight();
             this.fighting = true;
           });
         });
@@ -521,5 +548,6 @@ export class GameScene extends Phaser.Scene {
     this.countdown?.destroy();
     this.winScreen?.destroy();
     this.particles?.destroy();
+    this.damageNumbers?.destroy();
   }
 }
